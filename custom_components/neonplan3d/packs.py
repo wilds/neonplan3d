@@ -32,6 +32,8 @@ PACK_PUBLIC_KEYS: dict[str, str] = {
     "867371cc70e6": "uP74xZzFJ2yysjdIZVq5q9G/yn5hVX4HJ6wHv7pqqwo=",
     # Mastershort Möbel-Studio (signs customers' own furniture on api.mastershort.de; limited, see STUDIO_KEYS)
     "bdac241ae58b": "+oU/fcdvK7sfvpmz/aq63Y1QIymqK5+pKYGrGksrco8=",
+    # NeonPlan 3D Community
+    "ce75db5f9fac": "JROTAGVHLEPwOmSWASy7yzfG99lrtHKelRAdYmbrptA=",
 }
 # keys that may only sign furniture of their own: "studio.*" packs without Pro features (a leaked studio key
 # cannot unlock anything)
