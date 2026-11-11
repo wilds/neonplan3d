@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cameraMotionSensors, detectionKind, buildMarkers, setCameraSensors, stateText } from "./markers.ts";
+import { cameraMotionSensors, detectionKind, buildMarkers, lightLumensText, lumenGlowScale, setCameraSensors, stateText } from "./markers.ts";
 import type { Building } from "./model.ts";
 import { emptyBuilding, newFloor } from "./model.ts";
 import type { HassEntity, HomeAssistant } from "./types.ts";
@@ -30,6 +30,20 @@ test("state texts are short and localised", () => {
   assert.equal(stateText(hass, st("sensor.t", "21.44", { unit_of_measurement: "°C" })), "21,4 °C");
   assert.equal(stateText(hass, st("light.a", "unavailable")), "Nicht verfügbar");
   assert.equal(stateText(hass, undefined), "Nicht verfügbar");
+
+  // lightLumensText
+  assert.equal(lightLumensText(st("light.a", "on", { brightness: 128 }), 800), "50 % (400 lm)");
+  assert.equal(lightLumensText(st("light.a", "on"), 800), "800 lm");
+  assert.equal(lightLumensText(st("light.a", "off"), 800), null);
+  assert.equal(lightLumensText(st("light.a", "on", { brightness: 128 }), 20, "per_led", 50), "50 % (500 lm)");
+
+  // lumenGlowScale
+  assert.equal(lumenGlowScale(0), 0);
+  assert.equal(lumenGlowScale(undefined), 1);
+  assert.equal(lumenGlowScale(null), 1);
+  assert.equal(lumenGlowScale(800), 1);
+  assert.ok(lumenGlowScale(2400) > 1);
+  assert.ok(lumenGlowScale(200) < 1);
 });
 
 test("markers find their room, default height and light glow; missing entities are skipped", () => {
