@@ -352,3 +352,26 @@ test("a wall left out by a height of 0 is reported with the room edges of both s
   assert.equal(res.noWalls.length, 1);
   assert.deepEqual(res.noWalls[0].map((s) => `${s.room_id}:${s.edge}`).sort(), ["a:2", "b:0"]);
 });
+
+test("walls support a height offset (dislivello)", () => {
+  // 1. Free wall with offset
+  const free = [{ id: "garden_wall", a: [0, 0] as Vec2, b: [4, 0] as Vec2, thickness: 0.2, height: 1.2, offset: 0.5 }];
+  const { walls } = generateWalls([], { exterior: 0.24, interior: 0.12 }, free);
+  assert.equal(walls.length, 1);
+  assert.equal(walls[0].offset, 0.5);
+  assert.equal(walls[0].height, 1.2);
+
+  // 2. Room wall edge with offset
+  const room: Room = {
+    id: "r1",
+    name: "Room",
+    area_id: null,
+    points: [[0, 0], [4, 0], [4, 3], [0, 3]],
+    floor_material: "wood",
+    wall_offsets: [0.3, null, null, null],
+  };
+  const res = generateWalls([room], { exterior: 0.24, interior: 0.12 });
+  const offsetWall = res.walls.find((w) => w.sources.some((s) => s.room_id === "r1" && s.edge === 0));
+  assert.ok(offsetWall);
+  assert.equal(offsetWall.offset, 0.3);
+});

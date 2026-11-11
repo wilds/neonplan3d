@@ -70,6 +70,10 @@ export interface Room {
   /** Colour of every wall of the room on its own side, unless the wall has its own (null = the style's white). */
   wall_color?: string | null;
   /**
+   * Height offset on each edge in m (index = edge); null = 0, e.g. a raised or lowered wall.
+   */
+  wall_offsets?: (number | null)[];
+  /**
    * Split points on each edge (index = edge): distances in metres from points[i] where the wall is cut
    * into parts of their own (each with its own height), e.g. a 2.5 m wall next to a 1.7 m one in line.
    */
@@ -468,6 +472,8 @@ export interface FreeWall {
   slope?: [number, number] | null;
   /** Colour of both sides ("#rrggbb"; null = the room's wall, or the facade outside the rooms), shown in the homely styles (#1101). */
   color?: string | null;
+  /** Height offset in metres (null = 0), e.g. a raised garden wall or lower plinth. */
+  offset?: number | null;
 }
 
 /** "custom": the roof is made of sections (wings of an L- or T-shaped house, a barn, a lean-to …). */
