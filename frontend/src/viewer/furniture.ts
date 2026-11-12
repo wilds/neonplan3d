@@ -560,6 +560,51 @@ function waterHeater(b: Builder, w: number, d: number, h: number, wall: boolean)
   b.box(-r * 0.3, r * 0.3, h * 0.55, h * 0.65, r - 0.01, r + 0.01, C.dark);
 }
 
+/** PIR motion sensor: compact wall or ceiling bracket with spherical/cylindrical Fresnel lens. */
+function sensorPir(b: Builder, w: number, d: number, h: number, ceiling: boolean): void {
+  if (ceiling) {
+    const r = Math.min(w, d) / 2;
+    b.cyl(0, 0, r, 0, h * 0.5, C.white, C.whiteTop, 16, EDGE_FURN);
+    b.cyl(0, 0, r * 0.65, h * 0.5, h, C.glass, C.glass, 16);
+    return;
+  }
+  b.box(-w * 0.25, w * 0.25, h * 0.2, h * 0.7, -d * 0.5, -d * 0.3, C.metal, C.metal, EDGE_FURN);
+  b.pad(-w * 0.45, w * 0.45, 0, h, -d * 0.3, d * 0.4, C.white, C.whiteTop, 0.015, EDGE_FURN);
+  b.pad(-w * 0.35, w * 0.35, h * 0.15, h * 0.6, d * 0.35, d * 0.45, C.glass, C.glass, 0.01);
+}
+
+/** Presence sensor (mmWave radar): compact disc or square plate with small center sensor dome. */
+function sensorPresence(b: Builder, w: number, d: number, h: number, wall: boolean): void {
+  if (wall) {
+    b.pad(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.white, C.whiteTop, 0.015, EDGE_FURN);
+    const r = Math.min(w, h) * 0.25;
+    b.cyl(0, d / 2 + 0.005, r, h * 0.35, h * 0.65, C.glass, C.glass, 16);
+    return;
+  }
+  const r = Math.min(w, d) / 2;
+  b.cyl(0, 0, r, 0, h, C.white, C.whiteTop, 20, EDGE_FURN);
+  b.cyl(0, 0, r * 0.35, -0.005, 0.005, C.glass, C.glass, 16);
+}
+
+/** Contact sensor: two pieces (main sensor body with LED indicator and slim magnet piece alongside). */
+function sensorContact(b: Builder, w: number, d: number, h: number): void {
+  const w1 = w * 0.6;
+  const w2 = w * 0.3;
+  b.pad(-w / 2, -w / 2 + w1, 0, h, -d / 2, d / 2, C.white, C.whiteTop, 0.008, EDGE_FURN);
+  b.box(-w / 2 + w1 * 0.4, -w / 2 + w1 * 0.6, h * 0.7, h * 0.8, d / 2, d / 2 + 0.002, C.dark);
+  b.pad(w / 2 - w2, w / 2, h * 0.15, h * 0.85, -d / 2, d / 2, C.white, C.whiteTop, 0.006, EDGE_FURN);
+}
+
+/** Security alarm siren: wall mounted outdoor/indoor siren with beacon lens and acoustic grille. */
+function alarmSiren(b: Builder, w: number, d: number, h: number): void {
+  b.pad(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.white, C.whiteTop, 0.02, EDGE_FURN);
+  b.pad(-w * 0.42, w * 0.42, h * 0.72, h * 0.94, d / 2, d / 2 + 0.015, 0xd32f2f, 0xff5252, 0.01);
+  for (let i = 0; i < 4; i++) {
+    const y = h * (0.2 + i * 0.1);
+    b.box(-w * 0.35, w * 0.35, y, y + 0.01, d / 2, d / 2 + 0.004, C.dark);
+  }
+}
+
 /** A mailbox in its local shape. */
 function mailbox(b: Builder, w: number, d: number, h: number, shape: MailboxShape): void {
   const body = C.metal;
@@ -1673,6 +1718,18 @@ function buildFurniture(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f:
     case "wifi_ap":
       // under the ceiling or on the wall: lifted by its mount height, no shadow
       wifiAp(b, w, d, h, f.variant === "wall");
+      return;
+    case "sensor_pir":
+      sensorPir(b, w, d, h, f.variant === "ceiling");
+      return;
+    case "sensor_presence":
+      sensorPresence(b, w, d, h, f.variant === "wall");
+      return;
+    case "sensor_contact":
+      sensorContact(b, w, d, h);
+      return;
+    case "siren":
+      alarmSiren(b, w, d, h);
       return;
     case "water_heater":
       waterHeater(b, w, d, h, f.variant === "wall");

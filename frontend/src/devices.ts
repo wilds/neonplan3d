@@ -1448,3 +1448,72 @@ export function runButton(hass: HomeAssistant, from: HTMLElement, b: { action: s
     from.dispatchEvent(new CustomEvent("ll-custom", { detail: b.data ?? {}, bubbles: true, composed: true }));
   }
 }
+
+/** Finds the room containing a sensor, checking first explicit room_id, then entity's Home Assistant area_id, then geometry. */
+export function findSensorRoom(
+  floor: Floor,
+  x: number,
+  z: number,
+  entityId?: string | null,
+  hass?: HomeAssistant,
+  building?: Building | null,
+  explicitRoomId?: string | null,
+): { room: Room | null; roomName: string; roomId: string | null; floorId: string } {
+  // 1. Explicit room_id on the item (e.g. Opening)
+  if (explicitRoomId) {
+    const r = floor.rooms.find((rm: Room) => rm.id === explicitRoomId);
+    if (r) return { room: r, roomName: r.name, roomId: r.id, floorId: floor.id };
+    if (building) {
+      for (const fl of building.floors) {
+        const found = fl.rooms.find((rm: Room) => rm.id === explicitRoomId);
+        if (found) return { room: found, roomName: found.name, roomId: found.id, floorId: fl.id };
+      }
+    }
+  }
+
+  // 2. Home Assistant area of the entity
+  if (entityId && hass) {
+    const areaId = entityAreaId(hass, entityId);
+    if (areaId) {
+      let r = floor.rooms.find((rm: Room) => rm.area_id === areaId);
+      if (r) return { room: r, roomName: r.name, roomId: r.id, floorId: floor.id };
+
+      if (building) {
+        for (const fl of building.floors) {
+          r = fl.rooms.find((rm: Room) => rm.area_id === areaId);
+          if (r) return { room: r, roomName: r.name, roomId: r.id, floorId: fl.id };
+        }
+      }
+
+      const areaName = hass.areas?.[areaId]?.name;
+      if (areaName) {
+        const kArea = roomKey(areaName);
+        let match = floor.rooms.find((rm: Room) => roomKey(rm.name) === kArea);
+        if (match) return { room: match, roomName: match.name, roomId: match.id, floorId: floor.id };
+        if (building) {
+          for (const fl of building.floors) {
+            match = fl.rooms.find((rm: Room) => roomKey(rm.name) === kArea);
+            if (match) return { room: match, roomName: match.name, roomId: match.id, floorId: fl.id };
+          }
+        }
+        return { room: null, roomName: areaName, roomId: null, floorId: floor.id };
+      }
+    }
+  }
+
+  // 3. Geometric pointInPolygon check
+  const direct = floor.rooms.find((r: Room) => r.points.length >= 3 && pointInPolygon([x, z], r.points));
+  if (direct) return { room: direct, roomName: direct.name, roomId: direct.id, floorId: floor.id };
+
+  const offsets = [
+    [0.15, 0], [-0.15, 0], [0, 0.15], [0, -0.15],
+    [0.25, 0.25], [-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25],
+    [0.4, 0], [-0.4, 0], [0, 0.4], [0, -0.4],
+  ];
+  for (const [dx, dz] of offsets) {
+    const near = floor.rooms.find((r: Room) => r.points.length >= 3 && pointInPolygon([x + dx, z + dz], r.points));
+    if (near) return { room: near, roomName: near.name, roomId: near.id, floorId: floor.id };
+  }
+
+  return { room: null, roomName: floor.name, roomId: null, floorId: floor.id };
+}

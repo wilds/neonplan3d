@@ -38,6 +38,7 @@ import { carState, type CarState, heatSensorOn, roomClimateValue,
   apOnline,
   isPulseDrive,
   entityAreaId,
+  findSensorRoom,
 } from "../devices.ts";
 import { alertColor, alertEntities, alertSources, alertText, findAlerts, isOutage, type Alert, type AlertSources } from "../alerts.ts";
 import { iconPath, iconSvg, mdiIcon } from "../icons.ts";
@@ -3303,6 +3304,45 @@ export class Fp3dView3d extends LitElement {
       furnitureId: f.id,
       fromFurniture: true,
     };
+    if (f.type === "siren") {
+      const alarmId = this.building?.settings.alarm?.entity ?? Object.keys(hass.states).find((id) => id.startsWith("alarm_control_panel."));
+      const isTriggered = alarmId ? hass.states[alarmId]?.state === "triggered" : false;
+      if (isTriggered) {
+        screens.set(f.id, { color: [1, 0, 0], level: 1, faces: [{ part: "sensor_led", color: [1, 0, 0], level: 1 }] });
+      }
+      return null;
+    }
+    if (f.type === "sensor_pir" || f.type === "sensor_presence" || f.type === "sensor_contact") {
+      const id = main;
+      if (!id || taken.has(id)) return null;
+      taken.add(id);
+      const active = st?.state === "on" || st?.state === "open" || st?.state === "active";
+      const defModes = f.type === "sensor_contact" ? ["armed_away", "armed_home", "armed_night"] : ["armed_away", "armed_night"];
+      const { willTrigger } = this.alarmTriggerInfo(f.alarm_modes, defModes);
+
+      if (active) {
+        if (willTrigger) {
+          screens.set(f.id, { color: [1, 0.1, 0.1], level: 1, faces: [{ part: "sensor_led", color: [1, 0.1, 0.1], level: 1 }] });
+        } else {
+          screens.set(f.id, { color: [1, 0.8, 0.2], level: 0.6, faces: [{ part: "sensor_led", color: [1, 0.8, 0.2], level: 0.6 }] });
+        }
+      }
+      const defaultIcon = f.type === "sensor_pir" ? "motion-sensor" : f.type === "sensor_presence" ? "radar" : "door-open";
+      return {
+        ...base,
+        id,
+        y: mountBase(floor, f) + f.h + 0.15,
+        icon: mdiIcon(f.icon || defaultIcon),
+        name: f.name || entityName(hass, id),
+        text: st ? stateText(hass, st) : "",
+        active: !!active,
+        detected: active && willTrigger,
+        subtle: active && !willTrigger,
+        glow: active ? (willTrigger ? { color: [1, 0.1, 0.1], level: 1 } : { color: [1, 0.8, 0.2], level: 0.6 }) : null,
+        unavailable: st ? isUnavailable(st) : false,
+        show: f.marker ?? (active ? "always" : undefined),
+      };
+    }
     if (f.type === "wifi_ap") {
       const clientsId = ref(f.clients);
       const cs = clientsId ? hass.states[clientsId] : undefined;
@@ -3359,6 +3399,17 @@ export class Fp3dView3d extends LitElement {
       // its temperature is worth a pin
       energyDevice: temp !== null,
     };
+  }
+
+  private alarmTriggerInfo(sensorModes: string[] | null | undefined, defaultModes: string[]): { isArmed: boolean; willTrigger: boolean; triggered: boolean } {
+    if (!this.hass?.states) return { isArmed: false, willTrigger: false, triggered: false };
+    const alarmId = this.building?.settings.alarm?.entity ?? Object.keys(this.hass.states).find((id) => id.startsWith("alarm_control_panel."));
+    const alarmState = alarmId ? this.hass.states[alarmId]?.state : undefined;
+    const triggered = alarmState === "triggered";
+    const isArmed = !!alarmState && ["armed_away", "armed_home", "armed_night", "armed_vacation"].includes(alarmState);
+    const modes = Array.isArray(sensorModes) && sensorModes.length ? sensorModes : defaultModes;
+    const willTrigger = triggered || (isArmed && !!alarmState && modes.includes(alarmState));
+    return { isArmed, willTrigger, triggered };
   }
 
   /** The walls of a floor as the 3D view builds them (kept per floor object). */
@@ -4062,6 +4113,81 @@ export class Fp3dView3d extends LitElement {
     </div>`;
   }
 
+  private getAlarmStatus(): { hasAlarm: boolean; state: string; label: string; icon: string; style: string; triggered: boolean } {
+    const b = this.building;
+    const cfg = b?.settings.alarm;
+    const alarms = this.hass?.states ? Object.keys(this.hass.states).filter((id) => id.startsWith("alarm_control_panel.")) : [];
+    const hasAlarm = !!(cfg?.entity || alarms.length > 0 || cfg?.modes?.length);
+    if (!hasAlarm) return { hasAlarm: false, state: "", label: "", icon: "", style: "", triggered: false };
+
+    const alarmId = cfg?.entity && alarms.includes(cfg.entity) ? cfg.entity : alarms[0];
+    const alarmState = alarmId ? this.hass?.states[alarmId]?.state ?? "disarmed" : "disarmed";
+    const triggered = alarmState === "triggered";
+
+    let label = translate(this.hass, "alarm_short");
+    let icon = "🛡️";
+    let style = "border: 1px solid rgba(76, 175, 80, 0.65); color: #81c784; background: rgba(14, 30, 20, 0.82);";
+
+    switch (alarmState) {
+      case "disarmed":
+        label = translate(this.hass, "alarm_state_disarmed");
+        icon = "🛡️";
+        style = "border: 1px solid rgba(76, 175, 80, 0.65); color: #81c784; background: rgba(14, 30, 20, 0.82);";
+        break;
+      case "armed_home":
+        label = translate(this.hass, "alarm_state_armed_home");
+        icon = "🏠";
+        style = "border: 1px solid rgba(3, 169, 244, 0.65); color: #4fc3f7; background: rgba(8, 24, 40, 0.82);";
+        break;
+      case "armed_away":
+        label = translate(this.hass, "alarm_state_armed_away");
+        icon = "🔒";
+        style = "border: 1px solid rgba(255, 152, 0, 0.65); color: #ffb74d; background: rgba(36, 20, 8, 0.82);";
+        break;
+      case "armed_night":
+        label = translate(this.hass, "alarm_state_armed_night");
+        icon = "🌙";
+        style = "border: 1px solid rgba(92, 107, 192, 0.65); color: #9fa8da; background: rgba(16, 20, 42, 0.82);";
+        break;
+      case "armed_vacation":
+        label = translate(this.hass, "alarm_state_armed_vacation");
+        icon = "✈️";
+        style = "border: 1px solid rgba(171, 71, 188, 0.65); color: #ce93d8; background: rgba(32, 12, 36, 0.82);";
+        break;
+      case "triggered":
+        label = translate(this.hass, "alarm_state_triggered");
+        icon = "🚨";
+        style = "border: 1px solid #ff5252; color: #ffffff; background: #d32f2f; box-shadow: 0 0 18px rgba(244, 67, 54, 0.85); font-weight: 700;";
+        break;
+      case "pending":
+      case "arming":
+      case "disarming":
+        label = translate(this.hass, `alarm_state_${alarmState}` as I18nKey);
+        icon = "⏳";
+        style = "border: 1px solid rgba(255, 235, 59, 0.7); color: #fff59d; background: rgba(36, 32, 8, 0.82);";
+        break;
+    }
+    return { hasAlarm: true, state: alarmState, label, icon, style, triggered };
+  }
+
+  private renderAlarmButton() {
+    if (this.clean || this._walk || this.panelOpen || this.ro) return nothing;
+    const st = this.getAlarmStatus();
+    if (!st.hasAlarm) return nothing;
+    const hasWalk = this.walkable && !this.ro && !!this.building && !!this.hass && !this.panelOpen && !this._walk;
+    const top = hasWalk ? 58 : 12;
+    return html`<button
+      class="fp3d-alarm-btn ${st.triggered ? "fp3d-alarm-btn-triggered" : ""}"
+      style="top:${top}px;${st.style}"
+      title=${translate(this.hass, "alarm_hint")}
+      aria-label=${translate(this.hass, "alarm_title")}
+      @click=${() => this.dispatchEvent(new CustomEvent("alarm-toggle", { bubbles: true, composed: true }))}
+    >
+      <span class="fp3d-alarm-btn-icon">${st.icon}</span>
+      <span class="fp3d-alarm-btn-label">${st.label}</span>
+    </button>`;
+  }
+
   /** Haushalt Pro: the glass card "Today in the household" – what is due, tapped it opens the entity. */
   private renderHousehold() {
     if (!this._household.length || !this.householdCard || !hasFeature("household") || this.panelOpen) return nothing;
@@ -4069,7 +4195,14 @@ export class Fp3dView3d extends LitElement {
       this._hhFolded = !this._hhFolded;
       writeFlag("neonplan3d.hhFolded", this._hhFolded);
     };
-    return html`<div class="fp3d-hh ${this._hhFolded ? "fp3d-hh-folded" : ""}">
+    const hasWalk = this.walkable && !this.ro && !!this.building && !!this.hass && !this.panelOpen && !this._walk;
+    const st = this.getAlarmStatus();
+    const hasAlarm = !this.ro && !this.clean && !this._walk && !this.panelOpen && st.hasAlarm;
+    let hhTop = 12;
+    if (hasWalk) hhTop += 46;
+    if (hasAlarm) hhTop += 46;
+
+    return html`<div class="fp3d-hh ${this._hhFolded ? "fp3d-hh-folded" : ""}" style="top:${hhTop}px">
       <button class="fp3d-hh-head" aria-expanded=${!this._hhFolded} @click=${fold}>🏠 ${translate(this.hass, "hh_title")} <b>${this._household.length}</b></button>
       ${this._hhFolded
         ? nothing
@@ -4105,11 +4238,55 @@ export class Fp3dView3d extends LitElement {
     return html`<div class="fp3d-clock fp3d-clock-${pos}" aria-hidden="true"><b>${fmt({ hour: "2-digit", minute: "2-digit", ...hourCycle(this.hass) })}</b><span>${fmt({ weekday: "short", day: "numeric", month: "short" })}</span></div>`;
   }
 
+  private activeAlarmTriggers(): { entity: string; name: string; room: string; roomId: string | null; floorId: string | null }[] {
+    const b = this.building;
+    const hass = this.hass;
+    if (!b || !hass?.states) return [];
+    const out: { entity: string; name: string; room: string; roomId: string | null; floorId: string | null }[] = [];
+    for (const f of b.floors) {
+      for (const item of f.furniture) {
+        if (!item.entity || item.entity === "none") continue;
+        const st = hass.states[item.entity];
+        if (!st || (st.state !== "on" && st.state !== "open")) continue;
+        const isSecurity = ["sensor_pir", "sensor_presence", "sensor_contact"].includes(item.type);
+        if (!isSecurity) continue;
+        const defModes = item.type === "sensor_contact" ? ["armed_away", "armed_home", "armed_night"] : ["armed_away", "armed_night"];
+        const { willTrigger } = this.alarmTriggerInfo(item.alarm_modes, defModes);
+        if (willTrigger) {
+          const rmInfo = findSensorRoom(f, item.x, item.z, item.entity, hass, b);
+          out.push({ entity: item.entity, name: item.name || entityName(hass, item.entity), room: rmInfo.roomName, roomId: rmInfo.roomId, floorId: rmInfo.floorId });
+        }
+      }
+      for (const op of f.openings) {
+        for (const cid of [op.contact, op.contact2]) {
+          if (!cid || cid === "none") continue;
+          const st = hass.states[cid];
+          if (!st || (st.state !== "on" && st.state !== "open")) continue;
+          const { willTrigger } = this.alarmTriggerInfo(op.alarm_modes, ["armed_away", "armed_home", "armed_night"]);
+          if (willTrigger) {
+            const rmInfo = findSensorRoom(f, op.offset, 0, cid, hass, b, op.room_id);
+            out.push({ entity: cid, name: entityName(hass, cid), room: rmInfo.roomName, roomId: rmInfo.roomId, floorId: rmInfo.floorId });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
   private renderAlerts() {
     const b = this.building;
-    if (!this._alerts.length || !b) return nothing;
+    const triggers = this.activeAlarmTriggers();
+    if (!this._alerts.length && !triggers.length || !b) return nothing;
     const shown = this._alerts.slice(0, 3);
     return html`<div class="fp3d-alert-banner" role="alert">
+      ${triggers.map((tr) => html`
+        <button class="fp3d-alert fp3d-alert-alarm" style="background:#d32f2f;color:#fff;animation:fp3d-pulse-alarm 1s infinite alternate" @click=${() => {
+          if (tr.floorId && b.floors.length > 1) this.dispatchEvent(new CustomEvent("floor-tap", { detail: { floorId: tr.floorId }, bubbles: true, composed: true }));
+          if (tr.roomId) this.dispatchEvent(new CustomEvent("room-tap", { detail: { floorId: tr.floorId, roomId: tr.roomId }, bubbles: true, composed: true }));
+        }}>
+          ${translate(this.hass, "alarm_triggered_banner", { name: tr.name, room: tr.room })}
+        </button>
+      `)}
       ${shown.map((a) => html`<button class="fp3d-alert fp3d-alert-${a.kind}" title=${alertText(this.hass, b, a)} @click=${() => this.jumpTo(a)}>${alertText(this.hass, b, a)}</button>`)}
       ${this._alerts.length > 3 ? html`<span class="fp3d-alert-more">+${this._alerts.length - 3}</span>` : nothing}
     </div>`;
@@ -6289,7 +6466,7 @@ export class Fp3dView3d extends LitElement {
       style=${style}
     >
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderAlarmButton()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()}
       ${this.renderMic()}
       ${this._announce ? html`<div class="fp3d-announce" role="status" @click=${() => (this._announce = null)}>📢 ${this._announce}</div>` : nothing}
@@ -6970,6 +7147,30 @@ export class Fp3dView3d extends LitElement {
         color: var(--fp3d-text);
         box-shadow: var(--fp3d-shadow);
         cursor: pointer;
+      }
+      .fp3d-alarm-btn {
+        position: absolute;
+        z-index: 3;
+        right: 12px;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 14px 0 10px;
+        font: inherit;
+        font-weight: 700;
+        font-size: 13.5px;
+        border-radius: 13px;
+        background: var(--fp3d-chrome);
+        box-shadow: var(--fp3d-shadow);
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .fp3d-alarm-btn:hover {
+        transform: scale(1.04);
+      }
+      .fp3d-alarm-btn-triggered {
+        animation: fp3d-pulse-alarm 1s infinite alternate !important;
       }
       .fp3d-walk-surface {
         position: absolute;
@@ -8817,6 +9018,38 @@ export class Fp3dView3d extends LitElement {
         border-color: transparent;
         background: var(--fp3d-glow, var(--fp3d-warm));
         box-shadow: 0 0 16px var(--fp3d-glow, var(--fp3d-warm));
+      }
+      .fp3d-dev-detected {
+        color: #ffffff !important;
+        border-color: #ff5252 !important;
+        background: #e53935 !important;
+        box-shadow: 0 0 16px rgba(229, 57, 53, 0.95), 0 0 28px rgba(229, 57, 53, 0.6) !important;
+        animation: fp3d-pulse-alarm 1.2s ease-in-out infinite alternate !important;
+      }
+      .fp3d-dev-detected .fp3d-dev-icon {
+        background: rgba(255, 255, 255, 0.3) !important;
+        color: #ffffff !important;
+      }
+      .fp3d-dev-detected .fp3d-dev-text {
+        color: #ffffff !important;
+      }
+      .fp3d-dev-subtle {
+        border-color: rgba(255, 193, 7, 0.85) !important;
+        box-shadow: 0 0 10px rgba(255, 193, 7, 0.6) !important;
+      }
+      .fp3d-dev-subtle .fp3d-dev-icon {
+        background: rgba(255, 193, 7, 0.28) !important;
+        color: #ffca28 !important;
+      }
+      @keyframes fp3d-pulse-alarm {
+        from {
+          box-shadow: 0 0 10px rgba(229, 57, 53, 0.7);
+          transform: scale(1);
+        }
+        to {
+          box-shadow: 0 0 22px rgba(229, 57, 53, 1), 0 0 34px rgba(255, 82, 82, 0.85);
+          transform: scale(1.08);
+        }
       }
       .fp3d-dev-on .fp3d-dev-icon {
         background: rgba(255, 255, 255, 0.28);

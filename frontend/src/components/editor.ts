@@ -8,7 +8,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { ref } from "lit/directives/ref.js";
 import { fetchImage, getLicense, importPack, listHistory, restoreSnapshot, storeImage, takeSnapshot, type Snapshot, getVoiceSettings, setVoiceSentences, type SentenceMode } from "../api.ts";
 import { copyFloor, download, exportFile, parseExport } from "../transfer.ts";
-import { carEntities, type CarEntities, areaEntities, autoPlace, colorCapable, hiddenInHa, CLIMATE_CLASSES, defaultHeight, entityName, entityAreaId, furnitureEntities, groupByDevice, hasScreen, isMediaFurniture, isPlaceable, isRoomClimateSensor, kindOf, openingEntities, otherAreaEntities, pictureRuleMatches, roomClimateSensors, roomPanelEntities, unassignedEntities, windowPosition, type ClimateKey } from "../devices.ts";
+import { carEntities, type CarEntities, areaEntities, autoPlace, colorCapable, findSensorRoom, hiddenInHa, CLIMATE_CLASSES, defaultHeight, entityName, entityAreaId, furnitureEntities, groupByDevice, hasScreen, isMediaFurniture, isPlaceable, isRoomClimateSensor, kindOf, openingEntities, otherAreaEntities, pictureRuleMatches, roomClimateSensors, roomPanelEntities, unassignedEntities, windowPosition, type ClimateKey } from "../devices.ts";
 import { furnitureSymbol } from "./furniture2d.ts";
 import { clipConvex, netRoomArea } from "../geometry/area.ts";
 import { areaText, formatImperial, lengthText, lengthUnit, parseLength, unitLabel, type LengthUnit } from "../units.ts";
@@ -54,6 +54,8 @@ import { type CarLinks, type Background, OUTDOOR_TOP, sidelightLayout, DEFAULT_W
   type PoolJoint,
   type ValvePosition,
   zonesOf,
+  AVAILABLE_ALARM_MODES,
+  type AlarmSettings,
 } from "../model.ts";
 import { furnishRoom, PACKAGES, type PackageId } from "../packages.ts";
 import { edgeReach, generateWalls, locateOpening, openingHost, pointOnRoomEdge, type Wall } from "../geometry/walls.ts";
@@ -174,7 +176,7 @@ const MAX_MOUNT_Y = 10;
 /** How far below the floor a piece outside the rooms may stand: steps down to a sunken terrace (#897). */
 const MIN_MOUNT_Y_OUT = -5;
 
-type Tool = "select" | "rect" | "polygon" | "measure" | "opening" | "furniture" | "outdoor" | "hole" | "wall" | "roof" | "energy" | "pool" | "led_strip";
+type Tool = "select" | "rect" | "polygon" | "measure" | "opening" | "furniture" | "outdoor" | "hole" | "wall" | "roof" | "energy" | "alarm" | "pool" | "led_strip";
 
 type Drag =
   | { kind: "pan"; last: [number, number] }
@@ -237,7 +239,7 @@ const WALL_CATS: Record<string, string[]> = {
   tall: ["kitchen_tall", "fridge", "wardrobe", "tall_cabinet", "shelf", "coat_rack"],
   living: ["sofa", "armchair", "bed", "bunk_bed", "bench", "corner_bench", "plant"],
   light: ["lamp_wall", "lamp_floor", "led_strip", "lamp_table"],
-  switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater"],
+  switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater", "sensor_pir", "sensor_presence", "sensor_contact"],
 };
 /** Hanging pieces (they go into a gap high on the wall). */
 const HANGING = new Set(["kitchen_wall", "tv_wall", "lamp_wall", "shelf", "led_strip", "ac_unit"]);
@@ -353,7 +355,7 @@ function pathLengthOf(p: PoolPipe, nodeAt: (n: string) => { x: number; z: number
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 // furniture without a top to light: no "State from" box
-const NO_STATE_TYPES = new Set(["parking", "stairwell", "rug", "grid_point", "waste_bin", "mailbox", "wall_switch", "wall_socket", "wifi_ap", "water_heater"]);
+const NO_STATE_TYPES = new Set(["parking", "stairwell", "rug", "grid_point", "waste_bin", "mailbox", "wall_switch", "wall_socket", "wifi_ap", "water_heater", "sensor_pir", "sensor_presence", "sensor_contact"]);
 
 /** A gas or water meter from a pack (its reading in m³ or litres, no power): family "meter" tagged gas or water. */
 function volumeMeter(type: string): boolean {
@@ -4860,6 +4862,143 @@ export class Fp3dEditor extends LitElement {
         : nothing}`;
   }
 
+  private setAlarmSettings(patch: Partial<AlarmSettings>): void {
+    const cur = this._doc.settings.alarm ?? {};
+    this.setSettings({ alarm: { ...cur, ...patch } });
+  }
+
+  private renderAlarmConfigPanel() {
+    if (this.furnitureItem) {
+      return html`<button class="fp3d-btn fp3d-back" @click=${() => this.selectItem("furniture", null)}>‹ ${this.t("alarm_short")}</button>
+        ${this.renderFurnitureForm(this.furnitureItem)}`;
+    }
+    if (this.opening) {
+      return html`<button class="fp3d-btn fp3d-back" @click=${() => this.selectItem("opening", null)}>‹ ${this.t("alarm_short")}</button>
+        ${this.renderOpeningForm(this.opening)}`;
+    }
+
+    const doc = this._doc;
+    const admin = this.isAdmin;
+    const cfg = doc.settings.alarm ?? {};
+    const alarms = this.entityOptions((id) => id.startsWith("alarm_control_panel."));
+    const enabledModes = new Set(cfg.modes ?? ["armed_away", "armed_home", "armed_night"]);
+
+    // Collect all security sensors sorted by floor ascending and room list order
+    const sortedFloors = [...doc.floors].sort((a, b) => a.elevation - b.elevation);
+    const sensorsList: { id: string; name: string; kind: string; room: string; modesText: string; isOpening: boolean; floorId: string }[] = [];
+
+    for (const fl of sortedFloors) {
+      const roomMap = new Map<string, { name: string; rank: number }>();
+      fl.rooms.forEach((r, idx) => roomMap.set(r.id, { name: r.name, rank: idx }));
+
+      for (const item of fl.furniture) {
+        if (!["sensor_pir", "sensor_presence", "sensor_contact", "siren"].includes(item.type)) continue;
+        const rmInfo = findSensorRoom(fl, item.x, item.z, item.entity, this.hass, doc);
+        const defModes = item.type === "sensor_contact" ? ["armed_away", "armed_home", "armed_night"] : ["armed_away", "armed_night"];
+        const modes = Array.isArray(item.alarm_modes) && item.alarm_modes.length ? item.alarm_modes : defModes;
+        const modesText = item.type === "siren" ? "–" : modes.map((m) => {
+          const found = AVAILABLE_ALARM_MODES.find((x) => x.key === m);
+          return found ? this.t(found.labelKey as I18nKey) : m;
+        }).join(" · ");
+        sensorsList.push({
+          id: item.id,
+          name: item.name || this.t(`furn_${item.type}` as I18nKey),
+          kind: item.type,
+          room: rmInfo.roomName,
+          modesText,
+          isOpening: false,
+          floorId: rmInfo.floorId,
+        });
+      }
+
+      for (const op of fl.openings) {
+        if (!op.contact && !op.contact2) continue;
+        const rmInfo = findSensorRoom(fl, op.offset, 0, op.contact, this.hass, doc, op.room_id);
+        const defModes = ["armed_away", "armed_home", "armed_night"];
+        const modes = Array.isArray(op.alarm_modes) && op.alarm_modes.length ? op.alarm_modes : defModes;
+        const modesText = modes.map((m) => {
+          const found = AVAILABLE_ALARM_MODES.find((x) => x.key === m);
+          return found ? this.t(found.labelKey as I18nKey) : m;
+        }).join(" · ");
+        const cName = op.contact ? entityName(this.hass, op.contact) : op.id;
+        sensorsList.push({
+          id: op.id,
+          name: cName,
+          kind: "contact",
+          room: rmInfo.roomName,
+          modesText,
+          isOpening: true,
+          floorId: rmInfo.floorId,
+        });
+      }
+    }
+
+    return html`
+      <div class="fp3d-sidebar-header">
+        <h3>🛡️ ${this.t("alarm_config_title")}</h3>
+      </div>
+      <div class="fp3d-form fp3d-links">
+        ${this.entitySelect(this.t("alarm_title"), cfg.entity ?? null, undefined, alarms, (v) => this.setAlarmSettings({ entity: v === "none" ? null : v }))}
+
+        <h4 style="margin:8px 0 4px 0">${this.t("alarm_available_modes")}</h4>
+        ${AVAILABLE_ALARM_MODES.map((m) => html`
+          <label class="fp3d-check fp3d-wide">
+            <input
+              type="checkbox"
+              ?disabled=${!admin}
+              .checked=${enabledModes.has(m.key)}
+              @change=${(e: Event) => {
+                const next = new Set(enabledModes);
+                if ((e.target as HTMLInputElement).checked) next.add(m.key);
+                else next.delete(m.key);
+                this.setAlarmSettings({ modes: [...next] });
+              }}
+            />
+            ${this.t(m.labelKey as I18nKey)}
+          </label>
+        `)}
+
+        <h4 style="margin:8px 0 4px 0">${this.t("alarm_pin_config")}</h4>
+        <label class="fp3d-field fp3d-wide">
+          <input
+            type="password"
+            placeholder="PIN"
+            ?disabled=${!admin}
+            .value=${cfg.pin ?? ""}
+            @change=${(e: Event) => {
+              const val = (e.target as HTMLInputElement).value.trim();
+              this.setAlarmSettings({ pin: val || null });
+            }}
+          />
+        </label>
+        <p class="fp3d-sub fp3d-wide">${this.t("alarm_pin_hint")}</p>
+
+        <h4 style="margin:12px 0 6px 0">${this.t("alarm_configured_sensors")} (${sensorsList.length})</h4>
+        <div class="fp3d-room-list">
+          ${sensorsList.length === 0
+            ? html`<p class="fp3d-sub">${this.t("alarm_no_sensors")}</p>`
+            : sensorsList.map((s) => html`
+                <div
+                  class="fp3d-row fp3d-dev-row"
+                  style="cursor:pointer;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.04);margin-bottom:4px"
+                  @click=${() => {
+                    this._floorId = s.floorId;
+                    if (s.isOpening) this.selectItem("opening", s.id);
+                    else this.selectItem("furniture", s.id);
+                  }}
+                >
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:12.5px">${s.name} <small style="opacity:0.6">· ${s.room}</small></div>
+                    <div style="font-size:11px;opacity:0.75">${s.modesText}</div>
+                  </div>
+                  <span style="opacity:0.5;font-size:13px">✎</span>
+                </div>
+              `)}
+        </div>
+      </div>
+    `;
+  }
+
   private renderRoofSectionForm(sec: RoofSection) {
     const admin = this.isAdmin;
     const set = (patch: Partial<RoofSection>) => this.updateRoofSection(patch);
@@ -6212,7 +6351,7 @@ export class Fp3dEditor extends LitElement {
               : nothing}
           </div>`;
         })}
-        ${plain("furniture", this.t("tool_furniture"))} ${plain("energy", this.t("tool_energy"))}
+        ${plain("furniture", this.t("tool_furniture"))} ${plain("energy", this.t("tool_energy"))} ${plain("alarm", this.t("alarm_short"))}
       </div>
       <div class="fp3d-seg fp3d-seg-menu">
         <button class="fp3d-undo" ?disabled=${!this._canUndo} @click=${() => this.undo()} title=${`${this.t("undo")} (Ctrl+Z)`} aria-label=${this.t("undo")}>↶</button>
@@ -11360,6 +11499,7 @@ export class Fp3dEditor extends LitElement {
     const areas = Object.values(this.hass?.areas ?? {}).sort((a, b) => a.name.localeCompare(b.name));
     if (this._tool === "roof") return this.renderRoofPanel();
     if (this._tool === "energy") return this.renderEnergyPanel();
+    if (this._tool === "alarm") return this.renderAlarmConfigPanel();
     if (this._tool === "pool") return this.renderPoolPanel(floor);
     // furnishing: the library and the selected item come first
     if (this._tool === "furniture" && floor && admin) {
@@ -12081,6 +12221,30 @@ export class Fp3dEditor extends LitElement {
               ><input type="checkbox" .checked=${!!o.rain_ignore} ?disabled=${!admin} @change=${(ev: Event) => this.updateOpening({ rain_ignore: (ev.target as HTMLInputElement).checked || undefined })} />
               ${this.t("rain_ignore")}</label
             >`
+          : nothing}
+        ${o.contact !== "none" && (o.contact || o.contact2)
+          ? html`
+              <h4 class="fp3d-wide" style="margin:8px 0 2px 0">${this.t("alarm_sensor_trigger_modes")}</h4>
+              ${AVAILABLE_ALARM_MODES.map((m) => {
+                const curModes = new Set(Array.isArray(o.alarm_modes) && o.alarm_modes.length ? o.alarm_modes : ["armed_away", "armed_home", "armed_night"]);
+                return html`
+                  <label class="fp3d-check fp3d-wide">
+                    <input
+                      type="checkbox"
+                      ?disabled=${!admin}
+                      .checked=${curModes.has(m.key)}
+                      @change=${(ev: Event) => {
+                        const next = new Set(curModes);
+                        if ((ev.target as HTMLInputElement).checked) next.add(m.key);
+                        else next.delete(m.key);
+                        this.updateOpening({ alarm_modes: [...next] });
+                      }}
+                    />
+                    ${this.t(m.labelKey as I18nKey)}
+                  </label>
+                `;
+              })}
+            `
           : nothing}
       </div>
       <p class="fp3d-sub">${this.t(window ? "opening_hint" : garage ? "garage_hint" : "door_hint")}</p>
@@ -13279,32 +13443,70 @@ export class Fp3dEditor extends LitElement {
       >`;
   }
 
-  /** Wi-Fi access point (D582) and water heater: how it is mounted and its entities. */
+  /** Wi-Fi access point, water heater and security sensors: how it is mounted and its entities. */
   private renderTechForm(f: Furniture) {
     if (!this.hass) return nothing;
     const admin = this.isAdmin;
+    const isSensor = f.type === "sensor_pir" || f.type === "sensor_presence" || f.type === "sensor_contact";
     const ap = f.type === "wifi_ap";
-    const mounts = ["", "wall"] as const;
+    const mounts = f.type === "sensor_pir" ? (["", "ceiling"] as const) : f.type === "sensor_presence" ? (["", "wall"] as const) : f.type === "sensor_contact" ? ([] as const) : (["", "wall"] as const);
     const setMount = (v: string) => {
-      const [w, d, h] = TECH_SIZE[`${f.type}:${v}`];
-      this.updateFurniture({ variant: v || null, w, d, h, mount_y: null });
+      const size = TECH_SIZE[`${f.type}:${v}`] ?? TECH_SIZE[`${f.type}:`];
+      if (size) {
+        const [w, d, h] = size;
+        this.updateFurniture({ variant: v || null, w, d, h, mount_y: null });
+      }
     };
     const sensors = this.entityOptions((id) => id.startsWith("sensor."));
-    // an access point's entities are often diagnostic (UniFi): every entity of the kinds that tell a state is offered
-    const main = this.entityOptions((id) => (ap ? /^(binary_sensor|sensor|device_tracker|switch|button|update)\./ : /^(water_heater|climate|switch|input_boolean|sensor)\./).test(id));
+    const main = isSensor
+      ? this.entityOptions((id) => {
+          if (!id.startsWith("binary_sensor.") && !id.startsWith("sensor.") && !id.startsWith("input_boolean.")) return false;
+          const dc = String(this.hass?.states[id]?.attributes.device_class ?? "");
+          if (f.type === "sensor_pir") return ["motion", "occupancy"].includes(dc) || id.startsWith("binary_sensor.");
+          if (f.type === "sensor_presence") return dc === "presence" || id.startsWith("binary_sensor.");
+          if (f.type === "sensor_contact") return ["door", "window", "opening", "garage_door"].includes(dc) || id.startsWith("binary_sensor.");
+          return true;
+        })
+      : this.entityOptions((id) => (ap ? /^(binary_sensor|sensor|device_tracker|switch|button|update)\./ : /^(water_heater|climate|switch|input_boolean|sensor)\./).test(id));
     return html`<div class="fp3d-form fp3d-links">
-      <label class="fp3d-field"
-        >${this.t("tech_mount")}
-        <select ?disabled=${!admin} @change=${(e: Event) => setMount((e.target as HTMLSelectElement).value)}>
-          ${mounts.map((v) => html`<option value=${v} ?selected=${(f.variant ?? "") === v}>${this.t(`${f.type}_${v || "std"}` as I18nKey)}</option>`)}
-        </select></label
-      >
-      ${this.entitySelect(this.t(ap ? "ap_status" : "heater_entity"), typeof f.entity === "string" && f.entity !== "none" ? f.entity : null, undefined, main, (v) => this.updateFurniture({ entity: v && v !== "none" ? v : "none" }))}
-      ${ap
+      ${mounts.length
+        ? html`<label class="fp3d-field"
+            >${this.t("tech_mount")}
+            <select ?disabled=${!admin} @change=${(e: Event) => setMount((e.target as HTMLSelectElement).value)}>
+              ${mounts.map((v) => html`<option value=${v} ?selected=${(f.variant ?? "") === v}>${this.t(`${f.type}_${v || "std"}` as I18nKey)}</option>`)}
+            </select></label
+          >`
+        : nothing}
+      ${this.entitySelect(this.t(isSensor ? "furn_entity" : ap ? "ap_status" : "heater_entity"), typeof f.entity === "string" && f.entity !== "none" ? f.entity : null, undefined, main, (v) => this.updateFurniture({ entity: v && v !== "none" ? v : "none" }))}
+      ${isSensor
+        ? html`
+            <h4 class="fp3d-wide" style="margin:6px 0 2px 0">${this.t("alarm_sensor_trigger_modes")}</h4>
+            ${AVAILABLE_ALARM_MODES.map((m) => {
+              const defModes = f.type === "sensor_contact" ? ["armed_away", "armed_home", "armed_night"] : ["armed_away", "armed_night"];
+              const curModes = new Set(Array.isArray(f.alarm_modes) && f.alarm_modes.length ? f.alarm_modes : defModes);
+              return html`
+                <label class="fp3d-check fp3d-wide">
+                  <input
+                    type="checkbox"
+                    ?disabled=${!admin}
+                    .checked=${curModes.has(m.key)}
+                    @change=${(ev: Event) => {
+                      const next = new Set(curModes);
+                      if ((ev.target as HTMLInputElement).checked) next.add(m.key);
+                      else next.delete(m.key);
+                      this.updateFurniture({ alarm_modes: [...next] });
+                    }}
+                  />
+                  ${this.t(m.labelKey as I18nKey)}
+                </label>
+              `;
+            })}
+          `
+        : ap
         ? this.entitySelect(this.t("ap_clients_sensor"), f.clients ?? null, undefined, sensors, (v) => this.updateFurniture({ clients: v && v !== "none" ? v : null }))
         : html`${this.entitySelect(this.t("heater_temp"), f.water_temp ?? null, undefined, sensors, (v) => this.updateFurniture({ water_temp: v && v !== "none" ? v : null }))}
             ${this.entitySelect(this.t("furn_power"), typeof f.power === "string" && f.power !== "none" ? f.power : null, undefined, this.entityOptions((id) => this.isPowerSensor(id)), (v) => this.updateFurniture({ power: v && v !== "none" ? v : "none" }))}`}
-      <p class="fp3d-sub fp3d-wide">${this.t(ap ? "ap_hint" : "heater_hint")}</p>
+      <p class="fp3d-sub fp3d-wide">${this.t(isSensor ? "alarm_hint" : ap ? "ap_hint" : "heater_hint")}</p>
       <div class="fp3d-form">${this.markerSelect(f.marker ?? null, (v) => this.updateFurniture({ marker: v }))}${this.iconInput(f.icon, (v) => this.updateFurniture({ icon: v }))}</div>
     </div>`;
   }

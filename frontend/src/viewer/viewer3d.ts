@@ -196,6 +196,10 @@ export interface DeviceMarker {
   reach?: number;
   /** Camera: degrees below the horizon it looks (for the look through it). */
   tilt?: number;
+  /** Alarm / security detection indicator (red pulse). */
+  detected?: boolean;
+  /** Active but not triggering alarm (small yellow indicator). */
+  subtle?: boolean;
 }
 
 export type FloorStack = "dim" | "stacked" | "single";
@@ -281,7 +285,7 @@ export interface ScreenState {
   /** Furniture with a state: glowing faces on top of the item instead of a screen – the whole top, or a half of it. */
   // (see also SoundSource below)
   // "gang": one rocker or socket of a wall switch or socket (`index` of `of`)
-  faces?: { part: "all" | "left" | "right" | "top" | "bottom" | "band" | "cabin" | "lights" | "burners" | "lid" | "beacon" | "gang" | "drum" | "apring" | "strata" | "plate"; color: [number, number, number]; level: number; index?: number; of?: number; accent?: boolean; top?: [number, number, number] }[];
+  faces?: { part: "all" | "left" | "right" | "top" | "bottom" | "band" | "cabin" | "lights" | "burners" | "lid" | "beacon" | "gang" | "drum" | "apring" | "sensor_led" | "strata" | "plate"; color: [number, number, number]; level: number; index?: number; of?: number; accent?: boolean; top?: [number, number, number] }[];
 }
 
 /** Position of the sun (from sun.sun): degrees above the horizon and clockwise from north. */
@@ -633,7 +637,7 @@ export class FloorplanViewer {
   private groundTexture: CanvasTexture | null = null;
   private devices: DeviceMarker[] = [];
   /** Device markers with the last written fields, so unchanged fields are not written again. */
-  private readonly devicePins = new Map<string, { el: HTMLButtonElement; icon: string; text: string; watt: string; label: string; active: boolean; unavailable: boolean; glow: string; caption: string }>();
+  private readonly devicePins = new Map<string, { el: HTMLButtonElement; icon: string; text: string; watt: string; label: string; active: boolean; unavailable: boolean; glow: string; caption: string; detected?: boolean; subtle?: boolean }>();
   private readonly ground: Mesh;
   private floors: FloorView[] = [];
   private building: Building | null = null;
@@ -1061,7 +1065,7 @@ export class FloorplanViewer {
       seen.add(key);
       let pin = this.devicePins.get(key);
       if (!pin) {
-        pin = { el: this.makeDevicePin(d.id, d.furnitureId), icon: "", text: "", watt: "", label: "", active: false, unavailable: false, glow: "", caption: "" };
+        pin = { el: this.makeDevicePin(d.id, d.furnitureId), icon: "", text: "", watt: "", label: "", active: false, unavailable: false, glow: "", caption: "", detected: false, subtle: false };
         this.devicePins.set(key, pin);
         this.labels.append(pin.el);
       }
@@ -1094,6 +1098,14 @@ export class FloorplanViewer {
       if (pin.active !== d.active) {
         pin.active = d.active;
         el.classList.toggle("fp3d-dev-on", d.active);
+      }
+      if (pin.detected !== d.detected) {
+        pin.detected = d.detected;
+        el.classList.toggle("fp3d-dev-detected", !!d.detected);
+      }
+      if (pin.subtle !== d.subtle) {
+        pin.subtle = d.subtle;
+        el.classList.toggle("fp3d-dev-subtle", !!d.subtle);
       }
       if (pin.unavailable !== d.unavailable) {
         pin.unavailable = d.unavailable;
@@ -4193,6 +4205,22 @@ export class FloorplanViewer {
               buf.tri(at(a0, r * 0.8), at(a1, r), at(a1, r * 0.8), col);
               buf.tri(at(a0, r), at(a0, r * 1.5), at(a1, r * 1.5), col, dark, dark);
               buf.tri(at(a0, r), at(a1, r * 1.5), at(a1, r), col, dark, col);
+            }
+            continue;
+          }
+          if (face.part === "sensor_led") {
+            const aw = Math.abs(w);
+            const r = Math.min(aw, h) * 0.22;
+            const col = new Color(...face.color.map((v) => Math.min(1, v * (0.4 + 0.6 * face.level))) as [number, number, number]);
+            const dark = new Color(0, 0, 0);
+            const n = 16;
+            const at = (a: number, rr: number) => P(Math.cos(a) * rr, base + h * 0.5 + Math.sin(a) * rr, d / 2 + 0.005);
+            for (let i = 0; i < n; i++) {
+              const a0 = (i / n) * Math.PI * 2;
+              const a1 = ((i + 1) / n) * Math.PI * 2;
+              buf.tri(at(a0, 0), at(a0, r), at(a1, r), col);
+              buf.tri(at(a0, r), at(a0, r * 2.2), at(a1, r * 2.2), col, dark, dark);
+              buf.tri(at(a0, r), at(a1, r * 2.2), at(a1, r), col, dark, col);
             }
             continue;
           }

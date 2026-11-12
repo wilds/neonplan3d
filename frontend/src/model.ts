@@ -155,6 +155,8 @@ export interface Opening {
   well_rim?: number | null;
   /** How far the light well reaches out from the wall in m (null = 0.8 m), e.g. to stay within a path (#890). */
   well_depth?: number | null;
+  /** Alarm modes that trigger on this opening (e.g. "armed_away", "armed_home", "armed_night"). */
+  alarm_modes?: string[] | null;
   /** Highlight in 3D while open (null, default) or while closed (a WC or a child's room door). */
   mark?: "closed" | null;
   /**
@@ -271,6 +273,8 @@ export interface Furniture {
   moisture_min?: number | null;
   /** Haushalt Pro, washer, dryer, dishwasher: the time left (minutes, an end time or "H:MM"). */
   remaining?: EntityRef;
+  /** Alarm modes that trigger on this sensor (e.g. "armed_away", "armed_home", "armed_night"). */
+  alarm_modes?: string[] | null;
   /** Radiator: a sensor that says whether it heats (a valve's work state, an opening percentage) when the thermostat does not (D637). */
   heat_sensor?: EntityRef;
   /** Haushalt Pro: a consumable or service of the item (a filter, salt, rinse aid): due when on, at or below `service_min`, or its date. */
@@ -757,6 +761,23 @@ export const PET_FURS_OF: Record<Pet["kind"], readonly string[]> = {
 /** Dog breeds, small to large. */
 export const DOG_BREEDS = ["dachshund", "pug", "terrier", "labrador", "shepherd"] as const;
 
+/** Alarm modes supported by the alarm system. */
+export const AVAILABLE_ALARM_MODES = [
+  { key: "armed_away", labelKey: "alarm_state_armed_away" },
+  { key: "armed_home", labelKey: "alarm_state_armed_home" },
+  { key: "armed_night", labelKey: "alarm_state_armed_night" },
+  { key: "armed_vacation", labelKey: "alarm_state_armed_vacation" },
+] as const;
+
+export interface AlarmSettings {
+  /** The primary alarm_control_panel entity (null = auto). */
+  entity?: string | null;
+  /** Available/enabled armed modes: "armed_away", "armed_home", "armed_night", "armed_vacation". */
+  modes?: string[] | null;
+  /** Optional PIN code used to disarm from 3D view (if not set, view3d will not prompt for PIN). */
+  pin?: string | null;
+}
+
 export interface BuildingSettings extends StylePlan {
   /** The outside of the house in the homely styles ("#rrggbb", null = like the walls). */
   facade_color?: string | null;
@@ -847,6 +868,8 @@ export interface BuildingSettings extends StylePlan {
   halloween?: { ghost?: boolean } | null;
   /** Fun pack "Winter & Christmas": fairy lights along the eaves, snow on roof and lawn, the New Year's firework (winter.ts). */
   winter?: { roof_lights?: boolean; roof_entity?: string | null; roof_color?: boolean; roof_outline?: boolean; snow?: boolean; firework?: boolean } | null;
+  /** Alarm panel configuration (available armed modes, primary entity, PIN code). */
+  alarm?: AlarmSettings | null;
   /** Plan lock: rooms, walls, doors, windows and outdoor areas cannot be moved by accident. */
   lock_plan?: boolean;
   /** The camera the house view opens with (3D view, card, kiosk); null = fitted from the front left. */
@@ -1505,6 +1528,10 @@ export const FURNITURE_TYPES = [
   "lamp_fan",
   "wifi_ap",
   "water_heater",
+  "sensor_pir",
+  "sensor_presence",
+  "sensor_contact",
+  "siren",
 ] as const;
 
 /** Furniture library sections (the editor lists them in this order). */
@@ -1519,7 +1546,8 @@ export const FURNITURE_GROUPS: Record<string, FurnitureType[]> = {
   vehicles: ["parking"],
   outdoor: ["awning"],
   household: ["waste_bin", "mailbox"],
-  switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater"],
+  security: ["sensor_pir", "sensor_presence", "sensor_contact", "siren"],
+  switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater", "sensor_pir", "sensor_presence", "sensor_contact", "siren"],
 };
 
 /** Energy devices: placed and set up in the Energy tool (stored like furniture, not in the library). */
@@ -1740,19 +1768,30 @@ export function gangEntities(f: Pick<Furniture, "gangs">): string[] {
 }
 
 /** Wi-Fi access point and water heater: technical items with their own form (D582). */
-export const TECH_TYPES = new Set<string>(["wifi_ap", "water_heater"]);
+export const TECH_TYPES = new Set<string>(["wifi_ap", "water_heater", "sensor_pir", "sensor_presence", "sensor_contact", "siren"]);
+export const SENSOR_TYPES = new Set<string>(["sensor_pir", "sensor_presence", "sensor_contact"]);
 /** Their sizes by mounting: a disc on the ceiling or a plate on the wall; a standing tank or a slim one on the wall. */
 export const TECH_SIZE: Record<string, [number, number, number]> = {
   "wifi_ap:": [0.2, 0.2, 0.04],
   "wifi_ap:wall": [0.16, 0.04, 0.16],
   "water_heater:": [0.56, 0.56, 1.5],
   "water_heater:wall": [0.5, 0.27, 0.8],
+  "sensor_pir:": [0.08, 0.08, 0.1],
+  "sensor_pir:ceiling": [0.08, 0.08, 0.06],
+  "sensor_presence:": [0.08, 0.04, 0.08],
+  "sensor_presence:wall": [0.08, 0.04, 0.08],
+  "sensor_contact:": [0.03, 0.02, 0.06],
+  "siren:": [0.18, 0.1, 0.26],
 };
 
 /** Where an access point or water heater hangs by default: an access point under the ceiling or high on the wall, a slim tank at 1.1 m. */
 export function techBase(f: { type: string; variant?: string | null; h: number }, ceiling: number): number | null {
   if (f.type === "wifi_ap") return f.variant === "wall" ? 2.1 : Math.max(0, ceiling - f.h);
   if (f.type === "water_heater") return f.variant === "wall" ? 1.1 : 0;
+  if (f.type === "sensor_pir") return f.variant === "ceiling" ? Math.max(0, ceiling - f.h) : 2.2;
+  if (f.type === "sensor_presence") return f.variant === "wall" ? 2.0 : Math.max(0, ceiling - f.h);
+  if (f.type === "sensor_contact") return 1.2;
+  if (f.type === "siren") return 2.5;
   return null;
 }
 
@@ -1853,6 +1892,10 @@ export const FURNITURE_SIZE: Record<FurnitureType, [number, number, number]> = {
   // a ceiling access point (a UniFi disc); a standing hot water tank
   wifi_ap: [0.2, 0.2, 0.04],
   water_heater: [0.56, 0.56, 1.5],
+  sensor_pir: [0.08, 0.08, 0.1],
+  sensor_presence: [0.08, 0.04, 0.08],
+  sensor_contact: [0.03, 0.02, 0.06],
+  siren: [0.18, 0.1, 0.26],
   robot_vacuum: [0.36, 0.5, 0.1],
   parking: [2.6, 5.2, 0.02],
   lamp_pendant: [0.4, 0.4, 0.8],

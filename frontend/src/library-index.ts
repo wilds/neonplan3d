@@ -159,6 +159,10 @@ const BASIC: Record<string, [Kind, Room[]]> = {
   wall_socket: ["tech", []],
   wifi_ap: ["tech", []],
   water_heater: ["heating", ["utility", "bath", "garage"]],
+  sensor_pir: ["tech", ["hall", "living", "garage", "garden"]],
+  sensor_presence: ["tech", ["living", "office", "bedroom"]],
+  sensor_contact: ["tech", ["hall", "living", "garden", "garage"]],
+  siren: ["tech", ["garden", "garage", "hall"]],
 };
 
 /** The built-in kinds the library offers (the pool devices stand in Pool Pro's tools, energy devices in the energy tool). */
