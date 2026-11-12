@@ -1500,6 +1500,7 @@
  "lumens_per_led": "Lumen per LED (lm/LED)",
  "strip_calc_total": "Totale calcolato",
  "strip_calc_per_led": "Calcolato per LED",
+ "lumens_zero_hint": "Nessuna luce proiettata (solo punti luce visibili)",
  "current_at_pct": "al {pct}%: {lm} lm",
  "lumens": "Lumen (lm)",
  "furn_fixed_light_color": "Colore luce fisso",

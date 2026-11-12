@@ -12322,7 +12322,9 @@ export class Fp3dEditor extends LitElement {
                   }}
                 />
               </label>
-              ${f.lumens != null && f.lumens > 0
+              ${f.lumens === 0
+                ? html`<p class="fp3d-sub fp3d-wide">${this.t("lumens_zero_hint")}</p>`
+                : f.lumens != null && f.lumens > 0
                 ? html`<p class="fp3d-sub fp3d-wide">
                     ${f.lumen_mode === "per_led"
                       ? `${this.t("strip_calc_total")}: ${Math.round(f.lumens * (f.led_count || Math.max(10, Math.round(f.w * 30))))} lm`
@@ -13432,7 +13434,9 @@ export class Fp3dEditor extends LitElement {
                   }}
                 />
               </label>
-              ${f.lumens != null && f.lumens > 0
+              ${f.lumens === 0
+                ? html`<p class="fp3d-sub fp3d-wide">${this.t("lumens_zero_hint")}</p>`
+                : f.lumens != null && f.lumens > 0
                 ? html`<p class="fp3d-sub fp3d-wide">
                     ${(() => {
                       const st = f.entity ? this.hass?.states[f.entity] : undefined;
@@ -14004,7 +14008,9 @@ export class Fp3dEditor extends LitElement {
                 }}
               />
             </label>
-            ${pl.lumens != null && pl.lumens > 0
+            ${pl.lumens === 0
+              ? html`<p class="fp3d-sub fp3d-wide">${this.t("lumens_zero_hint")}</p>`
+              : pl.lumens != null && pl.lumens > 0
               ? html`<p class="fp3d-sub fp3d-wide">
                   ${(() => {
                     const st = this.hass?.states[pl.entity_id];

@@ -187,8 +187,10 @@ export function scaleGlow<T extends { level: number }>(glow: T | null, scale: nu
  * Baseline is 800 lm (equivalent to a standard 60W bulb or typical ~2m strip output).
  */
 export function lumenGlowScale(lumens: number | null | undefined, lumenMode?: "total" | "per_led" | null, ledCount?: number | null): number {
-  if (typeof lumens !== "number" || lumens <= 0) return 1;
+  if (lumens === 0) return 0;
+  if (typeof lumens !== "number" || lumens < 0) return 1;
   const count = ledCount && ledCount > 0 ? ledCount : 1;
   const total = lumenMode === "per_led" ? lumens * count : lumens;
-  return Math.min(2.5, Math.max(0.15, Math.pow(total / 800, 0.55)));
+  if (total === 0) return 0;
+  return Math.min(2.5, Math.max(0.05, Math.pow(total / 800, 0.55)));
 }

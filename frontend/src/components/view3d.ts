@@ -3754,18 +3754,23 @@ export class Fp3dView3d extends LitElement {
       garden: base + f.h + 0.25,
     }[model];
     const ledCount = f.led_count || Math.max(10, Math.round(f.w * 30));
+    const hasEntity = !!entity && entity !== "none";
+    const isOn = st ? isActive(st) : false;
     const liveGlow = st ? scaleGlow(fixedGlowColor(onlyColor(lightGlow(st, f.color_entity && f.color_entity !== "none" ? hass.states[f.color_entity] : undefined), f.only_color), f.glow_color), f.glow_scale) : null;
-    const previewGlow = (effectiveEffect ? ({ color: [1, 1, 1] as [number, number, number], level: 1 }) : null)
-      ?? (!entity || entity === "none" || !st
-        ? (f.type === "led_strip" || (this.furnish && this.selectedFurniture === f.id)
-          ? {
-              color: f.glow_color && /^#[0-9a-f]{6}$/i.test(f.glow_color)
-                ? ([1, 3, 5].map((i) => parseInt(f.glow_color!.slice(i, i + 2), 16) / 255) as [number, number, number])
-                : ([1, 0.71, 0.28] as [number, number, number]),
-              level: 1,
-            }
-          : null)
-        : null);
+    const isLit = hasEntity ? isOn : (f.type === "led_strip" || (this.furnish && this.selectedFurniture === f.id));
+    const activeStripEffect = isLit ? effectiveEffect : null;
+    const finalGlow = hasEntity
+      ? liveGlow
+      : (effectiveEffect
+          ? ({ color: [1, 1, 1] as [number, number, number], level: 1 })
+          : (f.type === "led_strip" || (this.furnish && this.selectedFurniture === f.id)
+            ? {
+                color: f.glow_color && /^#[0-9a-f]{6}$/i.test(f.glow_color)
+                  ? ([1, 3, 5].map((i) => parseInt(f.glow_color!.slice(i, i + 2), 16) / 255) as [number, number, number])
+                  : ([1, 0.71, 0.28] as [number, number, number]),
+                level: 1,
+              }
+            : null));
     return {
       // a lamp without a light keeps a key of its own (it is drawn, but not tappable)
       id: entity ?? `lamp:${f.id}`,
@@ -3780,7 +3785,7 @@ export class Fp3dView3d extends LitElement {
       text: (st ? lightLumensText(st, f.lumens, f.lumen_mode, f.type === "led_strip" ? ledCount : undefined) : null) ?? (st ? stateText(hass, st) : ""),
       active: st ? isActive(st) : false,
       unavailable: st ? isUnavailable(st) : false,
-      glow: liveGlow ?? previewGlow,
+      glow: finalGlow,
       lamp: model,
       rotation: f.rotation,
       mirror: !!f.mirror,
@@ -3790,7 +3795,7 @@ export class Fp3dView3d extends LitElement {
       points: f.points,
       heights: f.heights,
       led_count: f.led_count,
-      stripEffect: effectiveEffect,
+      stripEffect: activeStripEffect,
       closed: !!f.closed,
       showLineOff: !!f.show_line_off,
       hide_line: !!f.hide_line,

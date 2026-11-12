@@ -2650,6 +2650,7 @@ export class FloorplanViewer {
       const y = d.lightY ?? y0;
       const color = glow.color;
       const lScale = lumenGlowScale(d.lumens, d.lumenMode, d.led_count);
+      if (lScale <= 0) continue;
       if (d.lamp === "strip") {
         if (d.points && d.points.length >= 2) {
           const pts = d.points;
