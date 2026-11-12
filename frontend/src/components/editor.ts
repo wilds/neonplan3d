@@ -10805,7 +10805,7 @@ export class Fp3dEditor extends LitElement {
       return svg`<g data-furniture=${f.id} class=${`fp3d-furn${sel || member ? " fp3d-furn-sel" : ""}${lit ? " fp3d-furn-lit" : ""}${f.show_if?.entity && !furnitureShown(this.hass, f) ? " fp3d-furn-away" : ""}${(ENERGY_DEVICES as readonly string[]).includes(f.type) ? " fp3d-energy-item" : ""}`}>
         <g transform="translate(${cx} ${cy}) rotate(${f.rotation}) scale(${f.mirror ? -k : k} ${k})">
           <rect class="fp3d-furn-body" x=${-f.w / 2} y=${-f.d / 2} width=${f.w} height=${f.d} />
-          <g class="fp3d-furn-sym">${furnitureSymbol(f.type, f.w, f.d)}</g>
+          <g class="fp3d-furn-sym">${furnitureSymbol(f.type, f.w, f.d, f.variant)}</g>
           <line class="fp3d-furn-front" x1=${-f.w / 2} y1=${f.d / 2} x2=${f.w / 2} y2=${f.d / 2} />
         </g>
         ${big ? svg`<text x=${cx} y=${cy + 4}>${furnitureName(this.hass, f.type)}</text>` : nothing}
@@ -12407,6 +12407,30 @@ export class Fp3dEditor extends LitElement {
             >
           </div>`
         : nothing}
+      ${(() => {
+        const item = packItem(f.type);
+        if (!item?.variants?.length) return nothing;
+        const lang = this.hass?.language ?? "en";
+        const currentVar = f.variant ?? item.variants[0]?.id ?? "";
+        return html`<div class="fp3d-form">
+          <label class="fp3d-field fp3d-wide"
+            >${this.t("furn_variant")}
+            <select
+              ?disabled=${!admin}
+              @change=${(e: Event) => {
+                const val = (e.target as HTMLSelectElement).value || null;
+                const vObj = item.variants?.find((x) => x.id === val);
+                const sizePatch = vObj?.size ? { w: vObj.size[0], d: vObj.size[1], h: vObj.size[2] } : {};
+                this.updateFurniture({ variant: val, ...sizePatch });
+              }}
+            >
+              ${item.variants.map(
+                (v) => html`<option value=${v.id} ?selected=${currentVar === v.id}>${v.name[lang.split("-")[0]] ?? v.name.en ?? Object.values(v.name)[0] ?? v.id}</option>`,
+              )}
+            </select></label
+          >
+        </div>`;
+      })()}
       ${isElectric(f.type) ? this.renderFurnitureLinks(f) : !NO_STATE_TYPES.has(f.type) ? html`<div class="fp3d-form fp3d-links">${this.renderStateLinks(f)}</div>` : nothing} ${GANG_TYPES.has(f.type) ? this.renderGangsForm(f) : nothing} ${TECH_TYPES.has(f.type) ? this.renderTechForm(f) : nothing} ${f.type === "parking" ? this.renderParkingForm(f) : nothing} ${f.type === "waste_bin" || f.type === "mailbox" ? this.renderHouseholdForm(f) : this.renderHouseholdExtras(f)}
       ${this.renderShowIf(f)}
       ${this.renderModuleFurnitureFields(f)}

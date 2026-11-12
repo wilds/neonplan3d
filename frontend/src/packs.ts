@@ -77,6 +77,14 @@ export type PackSymbol =
   | { shape: "circle"; x: number; z: number; r: number }
   | { shape: "line"; x1: number; z1: number; x2: number; z2: number };
 
+export interface PackVariant {
+  id: string;
+  name: Record<string, string>;
+  size?: [number, number, number];
+  parts: PackPart[];
+  symbol?: PackSymbol[];
+}
+
 export interface PackItem {
   id: string;
   /** Names by language code. */
@@ -105,6 +113,8 @@ export interface PackItem {
   /** Variants of one thing (a table in three lengths) share a family; the variant names the chip, by language. */
   family?: string;
   variant?: Record<string, string>;
+  /** Visual/model variants of the same item (e.g. tree seasons: normal, in bloom, with fruit). */
+  variants?: PackVariant[];
 }
 
 export interface FurniturePack {
@@ -239,13 +249,50 @@ export function packDisplay(type: string): boolean {
   });
 }
 
+const PACK_ITEM_ALIASES: Record<string, string> = {
+  "garden_trees:cherry_tree_flower": "garden_trees:cherry_tree",
+  "garden_trees:cherry_tree_fruit": "garden_trees:cherry_tree",
+  "garden_trees:olive_tree_fruit": "garden_trees:olive_tree",
+  "garden_trees:norway_spruce_cones": "garden_trees:norway_spruce",
+  "garden_trees:koelreuteria_paniculata_flower": "garden_trees:koelreuteria_paniculata",
+  "garden_trees:koelreuteria_paniculata_lanterns": "garden_trees:koelreuteria_paniculata",
+  "garden_trees:japanese_maple_green": "garden_trees:japanese_maple",
+  "garden_trees:mulberry_tree_fruit": "garden_trees:mulberry_tree",
+  "garden_trees:prunus_cerasifera_flower": "garden_trees:prunus_cerasifera",
+  "garden_trees:judas_tree_green": "garden_trees:judas_tree",
+  "garden_trees:birch_tree_autumn": "garden_trees:birch_tree",
+  "garden_trees:ligustrum_lucidum_flower": "garden_trees:ligustrum_lucidum",
+  "garden_trees:ligustrum_lucidum_berries": "garden_trees:ligustrum_lucidum",
+  "garden_trees:holm_oak_acorns": "garden_trees:holm_oak",
+  "garden_trees:magnolia_grandiflora_flower": "garden_trees:magnolia_grandiflora",
+};
+
 export function packItem(type: string): PackItem | undefined {
   if (!isPackType(type)) return undefined;
   const hit = items.get(type);
   if (hit) return hit;
   const [, pack, ...rest] = type.split(":");
+  const restKey = rest.join(":");
+  const itemAlias = PACK_ITEM_ALIASES[`${pack}:${restKey}`];
+  if (itemAlias) {
+    const aliasHit = items.get(`pack:${itemAlias}`);
+    if (aliasHit) return aliasHit;
+  }
   const alias = PACK_ALIASES[pack];
-  return alias ? items.get(`pack:${alias}:${rest.join(":")}`) : undefined;
+  return alias ? items.get(`pack:${alias}:${restKey}`) : undefined;
+}
+
+/** Resolves an item's active parts and size according to the chosen variant. */
+export function packVariantItem(item: PackItem, variant?: string | null): PackItem {
+  if (!variant || !item.variants?.length) return item;
+  const v = item.variants.find((x) => x.id === variant);
+  if (!v) return item;
+  return {
+    ...item,
+    size: v.size ?? item.size,
+    parts: v.parts,
+    symbol: v.symbol ?? item.symbol,
+  };
 }
 
 /** Default size of any furniture type. */

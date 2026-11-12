@@ -103,6 +103,16 @@ SYMBOL_SCHEMA = vol.Any(
     vol.Schema({vol.Required("shape"): "line", "x1": _FRACTION, "z1": _FRACTION, "x2": _FRACTION, "z2": _FRACTION}),
 )
 
+VARIANT_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): _ID,
+        vol.Required("name"): vol.All({vol.All(str, vol.Length(min=2, max=5)): _TEXT}, vol.Length(min=1, max=10)),
+        vol.Optional("size"): vol.All([_METRES], vol.Length(min=3, max=3)),
+        vol.Required("parts"): vol.All([PART_SCHEMA], vol.Length(min=1, max=60)),
+        vol.Optional("symbol"): vol.All([SYMBOL_SCHEMA], vol.Length(max=40)),
+    }
+)
+
 ITEM_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
@@ -146,6 +156,7 @@ ITEM_SCHEMA = vol.Schema(
         vol.Optional("tags"): vol.All([vol.All(str, vol.Length(min=1, max=30))], vol.Length(max=12)),
         vol.Optional("family"): _ID,
         vol.Optional("variant"): vol.All({vol.All(str, vol.Length(min=2, max=5)): _TEXT}, vol.Length(min=1, max=10)),
+        vol.Optional("variants"): vol.All([VARIANT_SCHEMA], vol.Length(min=1, max=20)),
     }
 )
 

@@ -1714,6 +1714,7 @@
  "furn_grid_point": "Allacciamento alla rete",
  "grid_point_hint": "Qui finisce il cavo della rete: al punto di consegna del gestore, es. in fondo all'ingresso auto. Spostabile nel piano; senza allacciamento il cavo finisce al bordo delle aree esterne.",
  "furn_model": "Modello",
+ "furn_variant": "Variante",
  "inverter_std": "Standard (apparecchio a parete con display)",
  "inverter_slim": "Stretto e alto (striscia luminosa)",
  "inverter_hybrid": "Ibrido (quadrante rotondo, ventole)",
