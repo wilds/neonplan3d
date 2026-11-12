@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isLamp, newFloor, setTerrain, type Building, type Furniture } from "./model.ts";
-import { isCooktopZone, isPackCooktop, isPackSensor, furnitureSize, isElectric, mountBase, packDisplay, packItem, packItemName, packName, packType, setPacks, type FurniturePack } from "./packs.ts";
+import { isCooktopZone, isPackCooktop, isPackSensor, furnitureSize, isElectric, mountBase, packDisplay, packItem, packItemName, packName, packType, packVariantItem, setPacks, type FurniturePack } from "./packs.ts";
 
 const pack: FurniturePack = {
   id: "demo.pack",
@@ -131,4 +131,53 @@ test("a pack's sensor models follow any sensor, other pack items and built-ins d
   assert.equal(isPackSensor("pack:mastershort.smarthome:presence_mmwave"), true);
   assert.equal(isPackSensor("pack:mastershort.smarthome:smart_plug"), false);
   assert.equal(isPackSensor("motion_sensor"), false);
+});
+
+test("pack item variants switch model parts and sizes while preserving base item", () => {
+  const treePack: FurniturePack = {
+    id: "garden_trees",
+    name: "Alberi",
+    publisher: "Community",
+    licensee: null,
+    items: [
+      {
+        id: "cherry_tree",
+        name: { it: "Ciliegio", en: "Cherry Tree" },
+        size: [2.4, 2.4, 3.0],
+        parts: [{ shape: "box", x: 0, z: 0, w: 1, d: 1, y: 0, h: 1, color: "green" }],
+        variants: [
+          { id: "normal", name: { it: "Normale", en: "Normal" }, parts: [{ shape: "box", x: 0, z: 0, w: 1, d: 1, y: 0, h: 1, color: "green" }] },
+          { id: "flower", name: { it: "In fiore", en: "In bloom" }, parts: [{ shape: "box", x: 0, z: 0, w: 1, d: 1, y: 0, h: 1, color: "pink" }] },
+          { id: "fruit", name: { it: "In frutto", en: "With fruit" }, size: [2.5, 2.5, 3.2], parts: [{ shape: "box", x: 0, z: 0, w: 1, d: 1, y: 0, h: 1, color: "red" }] },
+        ],
+      },
+    ],
+  };
+
+  setPacks([treePack]);
+  const item = packItem("pack:garden_trees:cherry_tree")!;
+  assert.ok(item);
+  assert.equal(item.variants?.length, 3);
+
+  // default / null variant uses base parts
+  const def = packVariantItem(item, null);
+  assert.equal(def.parts[0].color, "green");
+  assert.deepEqual(def.size, [2.4, 2.4, 3.0]);
+
+  // flower variant
+  const flower = packVariantItem(item, "flower");
+  assert.equal(flower.parts[0].color, "pink");
+  assert.deepEqual(flower.size, [2.4, 2.4, 3.0]);
+
+  // fruit variant with custom size
+  const fruit = packVariantItem(item, "fruit");
+  assert.equal(fruit.parts[0].color, "red");
+  assert.deepEqual(fruit.size, [2.5, 2.5, 3.2]);
+
+  // fallback for legacy IDs
+  const legacy = packItem("pack:garden_trees:cherry_tree_flower");
+  assert.ok(legacy);
+  assert.equal(legacy.id, "cherry_tree");
+
+  setPacks([]);
 });
