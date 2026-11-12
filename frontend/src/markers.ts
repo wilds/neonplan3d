@@ -85,6 +85,7 @@ export function buildMarkers(hass: HomeAssistant, building: Building): DeviceMar
       if (!kind || !st) continue;
       const room = floor.rooms.find((r) => r.points.length >= 3 && pointInPolygon([pl.x, pl.z], r.points)) ?? null;
       const areaName = room?.area_id ? hass.areas?.[room.area_id]?.name : undefined;
+      const isDetection = kind === "binary" && isActive(st);
       out.push({
         id: pl.entity_id,
         floorId: floor.id,
@@ -107,8 +108,9 @@ export function buildMarkers(hass: HomeAssistant, building: Building): DeviceMar
         showName: !!pl.show_name,
         text: (kind === "light" ? lightLumensText(st, pl.lumens) : null) ?? stateText(hass, st),
         active: isActive(st),
+        detected: isDetection,
         unavailable: isUnavailable(st),
-        glow: kind === "light" ? scaleGlow(fixedGlowColor(lightGlow(st), pl.glow_color), pl.glow_scale) : null,
+        glow: isDetection ? { color: [1, 0.1, 0.1], level: 1 } : (kind === "light" ? scaleGlow(fixedGlowColor(lightGlow(st), pl.glow_color), pl.glow_scale) : null),
         lumens: pl.lumens,
         show: pl.marker ?? undefined,
         fixed: !!pl.locked,

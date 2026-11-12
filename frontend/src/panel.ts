@@ -19,6 +19,7 @@ import { siteOwner } from "./site.ts";
 import { OtherPlans } from "./plan-watch.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
+import "./components/alarm-panel.ts";
 import "./components/view3d.ts";
 import { formatPower } from "./components/view3d.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
@@ -113,6 +114,7 @@ export class Floorplan3dPanel extends LitElement {
     _angleLock: { state: true },
     _trail: { state: true },
     _cameraWall: { state: true },
+    _alarm: { state: true },
     _clean: { state: true },
     _phone: { state: true },
     _phoneAsk: { state: true },
@@ -199,6 +201,7 @@ export class Floorplan3dPanel extends LitElement {
   /** Motion trail of the last half hour in 3D. */
   private declare _trail: boolean;
   private declare _cameraWall: boolean;
+  private declare _alarm: boolean;
   /** Clean view (the eye): only the stage, remembered on this device. */
   private declare _clean: boolean;
   /** The phone view "What is going on?": chosen per device; a phone is asked once whether to try it. */
@@ -295,6 +298,7 @@ export class Floorplan3dPanel extends LitElement {
     this._angleLock = prefs.get("angle_lock") === "1";
     this._trail = prefs.get("trail") === "1";
     this._cameraWall = false;
+    this._alarm = prefs.get("alarm") === "1";
     this._clean = prefs.get("clean") === "1";
     this._phone = prefs.get("phone") === "1";
     this._nowMode = "bar";
@@ -1340,6 +1344,10 @@ export class Floorplan3dPanel extends LitElement {
         <fp3d-view3d
           class="fp3d-body"
           @walk-change=${(e: CustomEvent<{ walking: boolean }>) => (this._walking = e.detail.walking)}
+          @alarm-toggle=${() => {
+            this._alarm = !this._alarm;
+            prefs.set("alarm", this._alarm ? "1" : "0");
+          }}
           .pivotMark=${this._pinHover}
           .hass=${this.tt.hass(this.hass)}
           .replay=${this.tt.session?.replay ?? null}
@@ -1447,6 +1455,22 @@ export class Floorplan3dPanel extends LitElement {
               <button class="fp3d-chip" @click=${() => this.setPhone(true)}>${this.t("now_try_yes")}</button>
               <button class="fp3d-chip" @click=${() => this.setPhone(false)}>${this.t("now_try_no")}</button>
             </div>`
+          : nothing}
+        ${this._alarm && !this._clean
+          ? html`<fp3d-alarm-panel
+              .hass=${this.hass}
+              .building=${b}
+              .floorId=${b.floors.length > 1 ? this._floorId : (b.floors[0]?.id ?? null)}
+              .roomId=${this._roomId}
+              @alarm-close=${() => {
+                this._alarm = false;
+                prefs.set("alarm", "0");
+              }}
+              @sensor-pick=${(e: CustomEvent<{ id: string; roomId: string | null; floorId: string | null }>) => {
+                if (e.detail.floorId && b.floors.length > 1) this._floorId = e.detail.floorId;
+                if (e.detail.roomId) this._roomId = e.detail.roomId;
+              }}
+            ></fp3d-alarm-panel>`
           : nothing}
         ${roomBar
           ? html`<fp3d-room-bar
@@ -1603,6 +1627,30 @@ export class Floorplan3dPanel extends LitElement {
     tokens,
     controls,
     css`
+      .fp3d-alarm-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .fp3d-alarm-chip:hover {
+        transform: scale(1.04);
+      }
+      .fp3d-alarm-pulse {
+        animation: fp3d-alarm-pulse 1s infinite alternate !important;
+      }
+      @keyframes fp3d-alarm-pulse {
+        from {
+          box-shadow: 0 0 8px rgba(244, 67, 54, 0.7);
+          transform: scale(1);
+        }
+        to {
+          box-shadow: 0 0 20px rgba(244, 67, 54, 1), 0 0 30px rgba(255, 82, 82, 0.85);
+          transform: scale(1.06);
+        }
+      }
       .fp3d-gift-veil {
         position: fixed;
         inset: 0;
