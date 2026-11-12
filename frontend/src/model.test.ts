@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { emptyBuilding, lockAlong, gangEntities, gangPlateWidth, gangsOf, floorElevation, newFloor, outdoorZones, zonesOf, openingPreset, openingStyle, normalizeBuilding, outdoorDrop, outdoorGround, outdoorSurface, furnitureCorner, furnitureFootprint, resizeFurniture, roomTiles, sidelightLayout, spotGrid, surfaceHeight, syncCameraLooks, type Furniture, type OutdoorArea, type Room, type Vec2 } from "./model.ts";
+import { emptyBuilding, lockAlong, gangEntities, gangPlateWidth, gangsOf, floorElevation, newFloor, outdoorZones, zonesOf, openingPreset, openingStyle, normalizeBuilding, outdoorDrop, outdoorGround, outdoorSurface, furnitureCorner, furnitureFootprint, resizeFurniture, roomTiles, sidelightLayout, spotGrid, surfaceHeight, syncCameraLooks, roomCenter, pointInPolygon, type Furniture, type OutdoorArea, type Room, type Vec2 } from "./model.ts";
 
 test("a sidelight sits opposite the hinge, on the hinge side when asked, and keeps the leaf at least half a metre", () => {
   const none = {};
@@ -426,4 +426,28 @@ test("3D LED strips support custom 3D points, heights, LED count and light effec
   const fp = furnitureFootprint(strip);
   assert.equal(fp.length, 4);
   assert.deepEqual(fp, strip.points);
+});
+
+test("roomCenter returns an interior point for convex and concave rooms", () => {
+  const rect = { points: [[0, 0], [4, 0], [4, 2], [0, 2]] as Vec2[] };
+  const c = roomCenter(rect);
+  assert.ok(pointInPolygon(c, rect.points));
+  assert.equal(c[0], 2);
+  assert.equal(c[1], 1);
+
+  // U-shaped / concave room where centroid could lie outside
+  const concave = {
+    points: [
+      [0, 0],
+      [6, 0],
+      [6, 6],
+      [5, 6],
+      [5, 1],
+      [1, 1],
+      [1, 6],
+      [0, 6],
+    ] as Vec2[],
+  };
+  const c2 = roomCenter(concave);
+  assert.ok(pointInPolygon(c2, concave.points));
 });
