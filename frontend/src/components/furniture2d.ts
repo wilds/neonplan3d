@@ -2,7 +2,7 @@
 // The editor places them with translate/rotate/scale; strokes keep their width on screen.
 
 import { nothing, svg, type SVGTemplateResult } from "lit";
-import { packItem, type PackItem } from "../packs.ts";
+import { packItem, packVariantItem, type PackItem } from "../packs.ts";
 import { stairsULayout } from "../model.ts";
 
 type Part = SVGTemplateResult;
@@ -67,7 +67,7 @@ function cornerSeating(w: number, d: number, u: boolean): Part[] {
 }
 
 /** Symbol parts for a furniture type of size w × d (metres). */
-export function furnitureSymbol(type: string, w: number, d: number): Part[] | typeof nothing {
+export function furnitureSymbol(type: string, w: number, d: number, variant?: string | null): Part[] | typeof nothing {
   switch (type) {
     case "sofa":
       return seating(w, d, Math.max(1, Math.round((w - 0.4) / 0.62)), true);
@@ -245,7 +245,7 @@ export function furnitureSymbol(type: string, w: number, d: number): Part[] | ty
     }
     default: {
       const item = packItem(type);
-      return item ? packSymbol(item, w, d) : nothing;
+      return item ? packSymbol(packVariantItem(item, variant), w, d) : nothing;
     }
   }
 }

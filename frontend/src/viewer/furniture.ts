@@ -6,7 +6,7 @@
 import { Color } from "three";
 import type { Furniture, Vec2 } from "../model.ts";
 import { builtinBase, gangsOf, stairsULayout, POOL_VALVE_Y } from "../model.ts";
-import { adventCandles, isRobotVacuum, mountBase, packItem, packMotion, packMovingPart, packRobotCentre, packRobotPart, packScreen, packSpinAxis, type PackItem, type PackMotion, type PackPart } from "../packs.ts";
+import { adventCandles, isRobotVacuum, mountBase, packItem, packMotion, packMovingPart, packRobotCentre, packRobotPart, packScreen, packSpinAxis, packVariantItem, type PackItem, type PackMotion, type PackPart } from "../packs.ts";
 import { fitParts } from "../pack-scale.ts";
 import { hasLiveParts, liveKey, type PartBind } from "../live-parts.ts";
 import { binColors, binShape, householdCountry, mailboxShape, type BinShape, type MailboxShape } from "../household.ts";
@@ -1562,11 +1562,12 @@ function builtInScreen(f: Furniture, w: number, d: number, h: number, floor?: Fl
 }
 
 /** Round things cast a round shadow: a round table, a plant, a pack item whose largest part is an upright cylinder (#719). */
-export function roundFootprint(f: Pick<Furniture, "type">): boolean {
+export function roundFootprint(f: Pick<Furniture, "type"> & { variant?: string | null }): boolean {
   if (f.type === "table_round" || f.type === "plant") return true;
   const item = packItem(f.type);
-  if (!item?.parts.length) return false;
-  const big = item.parts.reduce((m, p) => (p.w * p.d > m.w * m.d ? p : m), item.parts[0]);
+  const vItem = item ? packVariantItem(item, f.variant) : undefined;
+  if (!vItem?.parts.length) return false;
+  const big = vItem.parts.reduce((m, p) => (p.w * p.d > m.w * m.d ? p : m), vItem.parts[0]);
   return big.shape === "cyl" && (big.axis ?? "y") === "y" && big.w >= 0.85 && big.d >= 0.85;
 }
 
@@ -1924,6 +1925,7 @@ function buildModel(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f: Fur
     default: {
       const item = packItem(f.type);
       if (item) {
+        const vItem = packVariantItem(item, f.variant);
         // a motorised curtain's fabric or a roll-down screen's cloth is drawn with its cover's state (pushPackMotion);
         // a pack's robot vacuum drives around as the viewer's robot (pushPackRobot), only its dock stays here (#645)
         const motion = packMotion(f.type);
@@ -1931,8 +1933,8 @@ function buildModel(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f: Fur
         // turning fan blades are a model of their own the viewer turns (pushPackSpin, #1084); a picture keeps them
         // live parts (3.4) are models of their own too, moved by the viewer (pushPackLive); a picture keeps them
         const live = !still && hasLiveParts(item);
-        const skip = !still && (packSpinAxis(item) || live) ? (p: PackPart) => !!p.spin || !!p.bind || !!own?.(p) : own;
-        packModel(b, item, w, d, h, base, null, null, skip);
+        const skip = !still && (packSpinAxis(vItem) || live) ? (p: PackPart) => !!p.spin || !!p.bind || !!own?.(p) : own;
+        packModel(b, vItem, w, d, h, base, null, null, skip);
         // items on furniture, walls or ceilings cast no shadow on the floor
         if (base > 0.05) return;
       } else b.box(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.body, C.bodyTop, EDGE_FURN);
@@ -2176,7 +2178,8 @@ export function packGlowCentres(item: PackItem, f: Pick<Furniture, "x" | "z" | "
   return pts.map((p) => [f.x + mx * p.x * c - p.z * s, base + p.y, f.z + mx * p.x * s + p.z * c]);
 }
 
-export function pushPackLamp(buf: GeoBuffer, item: PackItem, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror" | "finish">, base: number, glow: number, still = false): void {
+export function pushPackLamp(buf: GeoBuffer, item: PackItem, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror" | "finish"> & { variant?: string | null }, base: number, glow: number, still = false): void {
+  const vItem = packVariantItem(item, f.variant);
   const a = f.rotation * DEG;
   const c = Math.cos(a);
   const s = Math.sin(a);
@@ -2189,7 +2192,7 @@ export function pushPackLamp(buf: GeoBuffer, item: PackItem, f: Pick<Furniture, 
   const before = finish;
   finish = finishColors(f);
   try {
-    packModel(new Builder(buf, new LineBuffer(), tf), item, Math.max(0.05, f.w), Math.max(0.05, f.d), Math.max(0.005, f.h), base, glow, null, skip);
+    packModel(new Builder(buf, new LineBuffer(), tf), vItem, Math.max(0.05, f.w), Math.max(0.05, f.d), Math.max(0.005, f.h), base, glow, null, skip);
   } finally {
     finish = before;
   }
