@@ -2322,6 +2322,7 @@
  "card_template_on": "Questa scheda segue il suo modello. Modificalo nell’editor di NeonPlan in ⚙ Impostazioni → Modelli di scheda; ogni tablet lo riprende da solo.",
  "card_template_missing": "Il modello di scheda «{name}» non è più nella planimetria. La scheda usa le proprie impostazioni.",
  "card_plain": "Solo pianta (senza mobili)",
+ "item_room_none": "– nessuna stanza –",
  "room_bar": "Barra delle stanze",
  "room_bar_hint": "In basso una scheda per stanza: temperatura, finestre aperte, cosa suona e un interruttore della luce. Un tocco vola nella stanza. In alto restano solo i piani; l'occhio lascia la barra.",
  "room_bar_none": "Senza barra delle stanze",

@@ -2102,6 +2102,23 @@ export function centroid(points: readonly Vec2[]): Vec2 {
   return [cx / (6 * a), cz / (6 * a)];
 }
 
+/**
+ * An interior point representing the room's centre (its centroid if inside, else a point inside).
+ */
+export function roomCenter(room: { points: readonly Vec2[] }): Vec2 {
+  if (!room.points || !room.points.length) return [0, 0];
+  const c = centroid(room.points);
+  if (pointInPolygon(c, room.points)) return c;
+  for (let i = 0; i < room.points.length; i++) {
+    const v = room.points[i];
+    const mid: Vec2 = [(c[0] + v[0]) / 2, (c[1] + v[1]) / 2];
+    if (pointInPolygon(mid, room.points)) return mid;
+    const q: Vec2 = [(c[0] + 3 * v[0]) / 4, (c[1] + 3 * v[1]) / 4];
+    if (pointInPolygon(q, room.points)) return q;
+  }
+  return room.points[0];
+}
+
 /** True when the polygon is an axis-aligned rectangle (so the editor can offer x/z/width/depth fields). */
 export function isAxisRect(points: readonly Vec2[]): boolean {
   if (points.length !== 4) return false;

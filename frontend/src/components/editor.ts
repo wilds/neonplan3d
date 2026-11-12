@@ -112,6 +112,7 @@ import {
   furnitureCorner,
   resizeFurniture,
   roomTiles,
+  roomCenter,
   pointInPolygon,
   polygonArea,
   uid,
@@ -2756,7 +2757,13 @@ export class Fp3dEditor extends LitElement {
       case "pipept":
       case "poolport":
       case "pooljoint":
-        if (drag.moved) this.pushHistory(drag.base);
+        if (drag.moved) {
+          this.pushHistory(drag.base);
+          if (drag.kind === "furniture" || drag.kind === "furnset") {
+            const f = this.furnitureItem;
+            if (f) this._roomId = this.roomAt([f.x, f.z]);
+          }
+        }
         // a tap on a port or a joint opens its card
         else if (drag.kind === "poolport" || drag.kind === "pooljoint") this.openCard(drag.pool, `${drag.kind === "poolport" ? "port" : "joint"}:${drag.id}`);
         break;
@@ -2774,7 +2781,11 @@ export class Fp3dEditor extends LitElement {
         break;
       }
       case "device":
-        if (drag.moved) this.pushHistory(drag.base);
+        if (drag.moved) {
+          this.pushHistory(drag.base);
+          const pl = this.device;
+          if (pl) this._roomId = this.roomAt([pl.x, pl.z]);
+        }
         // a tap on a device selects it (and the room it stands in)
         else this.selectItem("device", drag.entityId);
         break;
@@ -2843,7 +2854,18 @@ export class Fp3dEditor extends LitElement {
     const rooms = this.floor?.rooms ?? [];
     // smallest room first so nested rooms stay reachable
     const hits = rooms.filter((r) => pointInPolygon(p, r.points)).sort((a, b) => polygonArea(a.points) - polygonArea(b.points));
-    return hits[0]?.id ?? null;
+    if (hits[0]) return hits[0].id;
+    // Edge proximity fallback for items sitting on room boundaries (e.g. wall items)
+    const near = rooms
+      .filter((r) => r.points.length >= 3 && r.points.some((a, i) => distToSegment(p, a, r.points[(i + 1) % r.points.length]) <= 0.08))
+      .sort((a, b) => polygonArea(a.points) - polygonArea(b.points));
+    return near[0]?.id ?? null;
+  }
+
+  /** Whether a plan point lies inside the room (or directly on its boundary wall). */
+  private isInRoom(p: Vec2, room: Room): boolean {
+    if (pointInPolygon(p, room.points)) return true;
+    return room.points.length >= 3 && room.points.some((a, i) => distToSegment(p, a, room.points[(i + 1) % room.points.length]) <= 0.08);
   }
 
   /** The outdoor area under a point: the smallest one, so a pool in a lawn or a bed on a terrace stays reachable. */
@@ -3431,6 +3453,8 @@ export class Fp3dEditor extends LitElement {
         const p = f.placements.find((x) => x.entity_id === id)!;
         [p.x, p.z] = mv([p.x, p.z]);
       });
+      const p = this.floor?.placements.find((x) => x.entity_id === id);
+      if (p) this._roomId = this.roomAt([p.x, p.z]);
     } else if (this._furnitureId) {
       const id = this._furnitureId;
       const vertex = this._stripVertex;
@@ -3447,6 +3471,8 @@ export class Fp3dEditor extends LitElement {
           if (m.points) m.points = m.points.map(mv);
         }
       });
+      const m = this.floor?.furniture.find((x) => x.id === id);
+      if (m) this._roomId = this.roomAt([m.x, m.z]);
     } else if (this._openingId) {
       const o = this.opening;
       const host = o ? openingHost(o, floor.rooms, floor.walls ?? []) : null;
@@ -5341,9 +5367,20 @@ export class Fp3dEditor extends LitElement {
     this._deviceId = kind === "device" ? id : null;
     if (kind === "device" && id) {
       const pl = this.floor?.placements.find((x) => x.entity_id === id);
-      this._roomId = (pl && this.roomAt([pl.x, pl.z])) ?? this._roomId;
+      if (!pl) {
+        const furn = this.floor?.furniture.find((m) => m.entity === id);
+        if (furn) {
+          this.selectItem("furniture", furn.id);
+          return;
+        }
+      }
+      this._roomId = pl ? this.roomAt([pl.x, pl.z]) : null;
     }
-    if (kind === "opening" && id) this._roomId = this.floor?.openings.find((o) => o.id === id)?.room_id ?? this._roomId;
+    if (kind === "furniture" && id) {
+      const furn = this.floor?.furniture.find((x) => x.id === id);
+      this._roomId = furn ? this.roomAt([furn.x, furn.z]) : null;
+    }
+    if (kind === "opening" && id) this._roomId = this.floor?.openings.find((o) => o.id === id)?.room_id ?? null;
   }
 
   private get opening(): Opening | undefined {
@@ -5629,6 +5666,10 @@ export class Fp3dEditor extends LitElement {
       const item = floor.furniture.find((f) => f.id === id);
       if (item) Object.assign(item, patch);
     });
+    if ("x" in patch || "z" in patch) {
+      const f = this.floor?.furniture.find((m) => m.id === id);
+      if (f) this._roomId = this.roomAt([f.x, f.z]);
+    }
   }
 
   private mirrorFurniture(): void {
@@ -5816,6 +5857,10 @@ export class Fp3dEditor extends LitElement {
   private updateDevice(patch: Partial<Placement>): void {
     const id = this._deviceId;
     this.change((_, floor) => patchItem(floor.placements.find((p) => p.entity_id === id), patch));
+    if ("x" in patch || "z" in patch) {
+      const pl = this.floor?.placements.find((p) => p.entity_id === id);
+      if (pl) this._roomId = this.roomAt([pl.x, pl.z]);
+    }
   }
 
   /** Move the selected device to the middle of its room. */
@@ -5826,6 +5871,48 @@ export class Fp3dEditor extends LitElement {
     if (!pl || !room) return;
     const [x, z] = centroid(room.points);
     this.updateDevice({ x: round(x), z: round(z) });
+  }
+
+  /** Move a furniture item (or its selection/block) to the centre of the chosen room on the same floor. */
+  private moveFurnitureToRoom(f: Furniture, targetRoomId: string): void {
+    if (!targetRoomId || !this.isAdmin) return;
+    const room = this.floor?.rooms.find((r) => r.id === targetRoomId);
+    if (!room) return;
+    const [tx, tz] = roomCenter(room);
+    const dx = round(tx - f.x);
+    const dz = round(tz - f.z);
+    const set = this.selection();
+    const ids = new Set(set.length ? set : [f.id]);
+    this.change((_, floor) => {
+      for (const m of floor.furniture) {
+        if (ids.has(m.id)) {
+          m.x = round(m.x + dx);
+          m.z = round(m.z + dz);
+          if (m.points) m.points = m.points.map(([px, pz]) => [round(px + dx), round(pz + dz)]);
+        }
+      }
+    });
+    this._roomId = targetRoomId;
+    this.showPoint(round(tx), round(tz));
+  }
+
+  /** Move a device to the centre of the chosen room on the same floor. */
+  private moveDeviceToRoom(pl: Placement, targetRoomId: string): void {
+    if (!targetRoomId || !this.isAdmin) return;
+    const room = this.floor?.rooms.find((r) => r.id === targetRoomId);
+    if (!room) return;
+    const [tx, tz] = roomCenter(room);
+    const rx = round(tx);
+    const rz = round(tz);
+    this.change((_, floor) => {
+      const p = floor.placements.find((x) => x.entity_id === pl.entity_id);
+      if (p) {
+        p.x = rx;
+        p.z = rz;
+      }
+    });
+    this._roomId = targetRoomId;
+    this.showPoint(rx, rz);
   }
 
   /** Spread the room's ceiling lights evenly over it (grid of cells, one light per cell). */
@@ -6634,9 +6721,9 @@ export class Fp3dEditor extends LitElement {
               ${floor ? this.renderFreeWalls(floor) : nothing}
               ${floor && walls ? this.renderOpenings(floor, walls.walls) : nothing} ${floor ? this.renderMeter(floor) : nothing}
               ${floor && this._tool === "select" ? this.renderDevices(floor) : nothing}
-              ${this.room && this.isAdmin && this._tool === "select" && !this._openingId && !this._furnitureId && !this.isFixedItem("room", this.room.id) ? this.renderHandles(this.room) : nothing}
+              ${this.room && this.isAdmin && this._tool === "select" && !this._openingId && !this._furnitureId && !this._deviceId && !this.isFixedItem("room", this.room.id) ? this.renderHandles(this.room) : nothing}
               ${floor ? this.renderOutdoorHandles(floor) : nothing}
-              ${this.room && this._tool === "select" ? this.renderSplitMarks(this.room) : nothing}
+              ${this.room && this._tool === "select" && !this._openingId && !this._furnitureId && !this._deviceId ? this.renderSplitMarks(this.room) : nothing}
               ${floor ? this.renderHeadroom(floor) : nothing}
               ${this._tool === "roof" ? svg`${this.renderRoofSections()}${this.renderRoofWindows()}` : this._tool === "energy" ? svg`${this.renderRoofSections()}${this.renderSolarFields()}${this.renderCables()}${this.renderEnergyMarkers()}` : this._tool === "pool" && floor && this.pipeRules ? this.renderPoolPlan(floor) : nothing} ${this.renderDraft()} ${this.renderGuides()}
             </svg>
@@ -11003,6 +11090,9 @@ export class Fp3dEditor extends LitElement {
     const block = !this._multi.length && !!items[0]?.group;
     const fixed = items.every((m) => this.isFixedItem("furniture", m.id));
     const some = !fixed && items.some((m) => this.isFixedItem("furniture", m.id));
+    const [cx, cz] = this.selectionCentre(set);
+    const currentRoomId = this.roomAt([cx, cz]);
+    const rooms = this.floor?.rooms ?? [];
     return html`<section>
       <div class="fp3d-h3row"><h3>${block ? `▣ ${this.t("block_title")}` : this.t("multi_title", { n: items.length })}</h3></div>
       <p class="fp3d-sub">${this.t(block ? "block_hint" : "multi_hint")}</p>
@@ -11014,6 +11104,15 @@ export class Fp3dEditor extends LitElement {
             this._single = !!m.group;
           }}>${m.name || furnitureName(this.hass, m.type)}</button>`,
         )}
+      </div>
+      <div class="fp3d-form" style="margin-top:12px">
+        <label class="fp3d-field fp3d-wide"
+          >${this.t("room")}
+          <select ?disabled=${!this.isAdmin || !rooms.length} @change=${(e: Event) => items[0] && this.moveFurnitureToRoom(items[0], (e.target as HTMLSelectElement).value)}>
+            <option value="" ?selected=${!currentRoomId}>${this.t("item_room_none")}</option>
+            ${rooms.map((r) => html`<option value=${r.id} ?selected=${r.id === currentRoomId}>${r.name}</option>`)}
+          </select>
+        </label>
       </div>
       <div class="fp3d-actions">
         ${block
@@ -12291,6 +12390,8 @@ export class Fp3dEditor extends LitElement {
   private renderFurnitureForm(f: Furniture) {
     if (this.selection().length > 1) return this.renderBlockForm();
     const admin = this.isAdmin;
+    const currentRoomId = this.roomAt([f.x, f.z]);
+    const rooms = this.floor?.rooms ?? [];
     return html`<section>
       <div class="fp3d-h3row"><h3>${f.name || this.t("furniture")}</h3>${this.fixButton("furniture", f.id)}</div>
       ${f.group
@@ -12303,6 +12404,13 @@ export class Fp3dEditor extends LitElement {
         <label class="fp3d-field fp3d-wide"
           >${this.t("furn_name")}
           <input type="text" maxlength="60" .value=${f.name ?? ""} ?disabled=${!admin} placeholder=${this.t(`furn_${f.type}` as I18nKey) === `furn_${f.type}` ? "" : this.t(`furn_${f.type}` as I18nKey)} @change=${(e: Event) => this.updateFurniture({ name: (e.target as HTMLInputElement).value.trim() || null })} />
+        </label>
+        <label class="fp3d-field fp3d-wide"
+          >${this.t("room")}
+          <select ?disabled=${!admin || !rooms.length} @change=${(e: Event) => this.moveFurnitureToRoom(f, (e.target as HTMLSelectElement).value)}>
+            <option value="" ?selected=${!currentRoomId}>${this.t("item_room_none")}</option>
+            ${rooms.map((r) => html`<option value=${r.id} ?selected=${r.id === currentRoomId}>${r.name}</option>`)}
+          </select>
         </label>
         <label class="fp3d-field fp3d-wide" title=${this.t("aliases_hint")}
           >${this.t("aliases")}
@@ -14178,6 +14286,8 @@ export class Fp3dEditor extends LitElement {
     const light = kind === "light";
     const mount = pl.mount ?? "ceiling";
     const auto = kind ? defaultHeight(kind, this.floor?.height ?? 2.5, light ? mount : null) : 1;
+    const currentRoomId = this.roomAt([pl.x, pl.z]);
+    const rooms = this.floor?.rooms ?? [];
     return html`<section>
       <div class="fp3d-h3row"><h3>${this.t("device")}</h3>${this.fixButton("device", pl.entity_id)}</div>
       <p class="fp3d-dev-title">
@@ -14187,6 +14297,13 @@ export class Fp3dEditor extends LitElement {
         ${entityName(this.hass, pl.entity_id)}
       </p>
       <div class="fp3d-form">
+        <label class="fp3d-field fp3d-wide"
+          >${this.t("room")}
+          <select ?disabled=${!admin || !rooms.length} @change=${(e: Event) => this.moveDeviceToRoom(pl, (e.target as HTMLSelectElement).value)}>
+            <option value="" ?selected=${!currentRoomId}>${this.t("item_room_none")}</option>
+            ${rooms.map((r) => html`<option value=${r.id} ?selected=${r.id === currentRoomId}>${r.name}</option>`)}
+          </select>
+        </label>
         ${light
           ? html`<label class="fp3d-field fp3d-wide"
               >${this.t("lamp_mount")}
@@ -14333,8 +14450,8 @@ export class Fp3dEditor extends LitElement {
     const area = hass ? areaEntities(hass, room.area_id).filter((id) => isPlaceable(kindOf(id))) : [];
     // placed as a device, or as a lamp with this light
     const placedHere = new Set([
-      ...(this.floor?.placements.filter((pl) => pointInPolygon([pl.x, pl.z], room.points)).map((pl) => pl.entity_id) ?? []),
-      ...(this.floor?.furniture.filter((m) => isLamp(m.type) && m.entity && pointInPolygon([m.x, m.z], room.points)).map((m) => m.entity!) ?? []),
+      ...(this.floor?.placements.filter((pl) => this.isInRoom([pl.x, pl.z], room)).map((pl) => pl.entity_id) ?? []),
+      ...(this.floor?.furniture.filter((m) => isLamp(m.type) && m.entity && this.isInRoom([m.x, m.z], room)).map((m) => m.entity!) ?? []),
     ]);
     // placed before it was hidden in Home Assistant: it stays in 3D, so it stays in the list too – to remove or hide it (#645);
     // what the room's panel shows through furniture, windows or a pin – a dryer's status text, a PC's internet
@@ -14350,7 +14467,7 @@ export class Fp3dEditor extends LitElement {
     const q = this._deviceQuery.trim().toLowerCase();
     const matches = (id: string) => !q || entityName(hass, id, areaName).toLowerCase().includes(q) || id.includes(q);
     const ceilingLights = this.floor?.placements.filter(
-      (p) => kindOf(p.entity_id) === "light" && (p.mount ?? "ceiling") === "ceiling" && pointInPolygon([p.x, p.z], room.points),
+      (p) => kindOf(p.entity_id) === "light" && (p.mount ?? "ceiling") === "ceiling" && this.isInRoom([p.x, p.z], room),
     ).length;
     const pinned = new Set(room.panel ?? []);
     const hidden = new Set(room.hidden ?? []);
@@ -14359,7 +14476,7 @@ export class Fp3dEditor extends LitElement {
     const placedIn = new Map<string, string>();
     for (const f of this._doc.floors)
       for (const id of [...f.placements.map((p) => [p.entity_id, p.x, p.z] as const), ...f.furniture.filter((m) => isLamp(m.type) && m.entity).map((m) => [m.entity!, m.x, m.z] as const)]) {
-        const r = f.rooms.find((x) => pointInPolygon([id[1], id[2]], x.points));
+        const r = f.rooms.find((x) => this.isInRoom([id[1], id[2]], x));
         if (r && r.id !== room.id) placedIn.set(id[0], r.name);
       }
     // extra: an entity from another area (shown only to place it); sub: a further entity of a device, with the same
