@@ -211,6 +211,45 @@ export function furnitureSymbol(type: string, w: number, d: number, variant?: st
       return [rect(-w / 2, -d / 2, w / 2, d / 2, "fp3d-sym-fill"), ellipse(0, d / 2, w / 2 + 0.06, 0.09)];
     case "plant":
       return [circle(0, 0, Math.min(w, d) * 0.46), circle(0, 0, Math.min(w, d) * 0.25)];
+    case "irrigation_controller":
+      return [
+        rect(-w / 2, -d / 2, w / 2, -d / 2 + 0.03, "fp3d-sym-fill"),
+        rect(-w * 0.35, -d * 0.1, w * 0.1, d * 0.35),
+        circle(w * 0.25, d * 0.1, Math.min(w, d) * 0.18),
+      ];
+    case "sprinkler_popup":
+      return [
+        circle(0, 0, Math.min(w, d) * 0.45),
+        circle(0, 0, Math.min(w, d) * 0.2),
+        line(0, -Math.min(w, d) * 0.45, 0, Math.min(w, d) * 0.45, "fp3d-sym-strong"),
+      ];
+    case "sprinkler_rotor":
+      return [
+        circle(0, 0, Math.min(w, d) * 0.46),
+        circle(0, 0, Math.min(w, d) * 0.24),
+        line(0, 0, 0, Math.min(w, d) * 0.46, "fp3d-sym-strong"),
+      ];
+    case "sprinkler_drip":
+      return [
+        circle(0, 0, Math.min(w, d) * 0.4),
+        circle(0, 0, Math.min(w, d) * 0.15),
+      ];
+    case "drip_line": {
+      const p = 0.33;
+      const count = Math.max(1, Math.floor(w / p));
+      const step = w / count;
+      const parts: Part[] = [line(-w / 2, 0, w / 2, 0, "fp3d-sym-strong")];
+      for (let i = 0; i <= count; i++) {
+        const x = -w / 2 + i * step;
+        parts.push(circle(x, 0, 0.02), line(x, -0.02, x, 0.02));
+      }
+      return parts;
+    }
+    case "irrigation_valve":
+      return [
+        rect(-w / 2, -d / 2, w / 2, d / 2, "fp3d-sym-fill"),
+        circle(0, 0, Math.min(w, d) * 0.3),
+      ];
     case "rug":
       return [rect(-w / 2 + 0.1, -d / 2 + 0.1, w / 2 - 0.1, d / 2 - 0.1)];
     case "stairs": {

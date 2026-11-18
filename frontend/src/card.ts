@@ -10,6 +10,7 @@ import { MAIN_PLAN } from "./api.ts";
 import { OtherPlans } from "./plan-watch.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
+import "./components/irrigation-panel.ts";
 import "./components/view3d.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
 import { controls, tokens } from "./styles.ts";
@@ -67,6 +68,7 @@ export class Floorplan3dCard extends LitElement {
     _vh: { state: true },
     _top: { state: true },
     _cameraWall: { state: true },
+    _irrigation: { state: true },
     _clean: { state: true },
     _night: { state: true },
     _orbit: { state: true },
@@ -100,6 +102,7 @@ export class Floorplan3dCard extends LitElement {
   private declare _vh: number;
   private declare _top: number | null;
   private declare _cameraWall: boolean;
+  private declare _irrigation: boolean;
   /** Clean view: only the stage (card option controls_hidden, the eye, or the hide-after timer). */
   private declare _clean: boolean;
   private cleanTimer: ReturnType<typeof setTimeout> | undefined;
@@ -137,6 +140,7 @@ export class Floorplan3dCard extends LitElement {
     this._vh = window.innerHeight;
     this._top = null;
     this._cameraWall = false;
+    this._irrigation = false;
     this._clean = false;
     this._night = false;
     this._orbit = false;
@@ -166,7 +170,7 @@ export class Floorplan3dCard extends LitElement {
   }
 
   private view3d() {
-    return this.shadowRoot?.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void }) | null;
+    return this.shadowRoot?.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void; focusPoint(floorId: string, x: number, z: number, y?: number): void }) | null;
   }
 
   /** Time travel on or off; without the Pro add-on its hint shows. */
@@ -560,7 +564,7 @@ clearTimeout(this.cleanTimer);
               .keepView=${c?.keep_view === true}
               .angleLock=${c?.angle_lock === true}
               .floorStack=${c?.floor_stack ?? "dim"}
-              .panelOpen=${!!this._roomId && c?.room_panel !== false}
+              .panelOpen=${(!!this._roomId && c?.room_panel !== false) || this._irrigation}
               .alerts=${c?.alerts !== false}
               .householdCard=${c?.household_card !== false}
               .alertJump=${!!c?.alert_jump}
@@ -603,6 +607,9 @@ clearTimeout(this.cleanTimer);
                 }
                 if (!e.detail.roomId) return;
                 this._roomId = e.detail.roomId === this._roomId ? null : e.detail.roomId;
+                if (this._roomId) {
+                  this._irrigation = false;
+                }
               }}
               @floor-tap=${(e: CustomEvent<{ floorId: string | null }>) => {
                 if (this.roomsLocked && e.detail.floorId && !this.roomFloors.includes(e.detail.floorId)) return;
@@ -610,6 +617,12 @@ clearTimeout(this.cleanTimer);
                 this._roomId = null;
               }}
               @back=${() => this.back()}
+              @irrigation-toggle=${() => {
+                this._irrigation = !this._irrigation;
+                if (this._irrigation) {
+                  this._roomId = null;
+                }
+              }}
             ></fp3d-view3d>`
           : html`<p class="fp3d-card-msg">${this.data.error ?? (b ? translate(this.hass, "no_building") : translate(this.hass, "loading"))}</p>`}
         ${b && c?.template && !cardTemplate(b, c.template) ? html`<div class="fp3d-card-tpl-missing">${translate(this.hass, "card_template_missing", { name: c.template })}</div>` : nothing}
@@ -630,6 +643,9 @@ clearTimeout(this.cleanTimer);
                   this._floorId = e.detail.floorId;
                 }
                 this._roomId = e.detail.roomId === this._roomId ? null : e.detail.roomId;
+                if (this._roomId) {
+                  this._irrigation = false;
+                }
               }}
             ></fp3d-room-bar>`
           : nothing}
@@ -682,6 +698,27 @@ clearTimeout(this.cleanTimer);
               @phone-more=${(e: CustomEvent<string>) => e.detail === "dash" && c?.dashboard && haNavigate(c.dashboard)}
             ></fp3d-phone-shell>`
           : nothing}
+        ${this._irrigation && !this._clean && b
+          ? html`<fp3d-irrigation-panel
+              .hass=${this.hass}
+              .building=${b}
+              .floorId=${b.floors.length > 1 ? this.currentFloor() : (b.floors[0]?.id ?? null)}
+              @irrigation-close=${() => (this._irrigation = false)}
+              @emitter-patch=${(e: CustomEvent<{ id: string; floorId: string; patch: Record<string, unknown> }>) => {
+                const fl = b.floors.find((f) => f.id === e.detail.floorId);
+                const m = fl?.furniture.find((item) => item.id === e.detail.id);
+                if (m) Object.assign(m, e.detail.patch);
+                const pl = fl?.placements.find((item) => item.entity_id === e.detail.id);
+                if (pl) Object.assign(pl, e.detail.patch);
+                this.requestUpdate();
+                this.data.edit(b);
+              }}
+              @sprinkler-pick=${(e: CustomEvent<{ id: string; floorId: string; x: number; z: number }>) => {
+                if (e.detail.floorId && b.floors.length > 1) this._floorId = e.detail.floorId;
+                this.view3d()?.focusPoint(e.detail.floorId, e.detail.x, e.detail.z, 0.2);
+              }}
+            ></fp3d-irrigation-panel>`
+          : nothing}
         ${bar && b
           ? html`<div class="fp3d-card-controls">
               ${canGoBack ? html`<button class="fp3d-chip" @click=${() => this.back()}>${t("back")}</button>` : nothing}
@@ -716,12 +753,12 @@ clearTimeout(this.cleanTimer);
             </div>`
           : nothing}
         ${this.tt.session ? html`<fp3d-time-bar .session=${this.tt.session}></fp3d-time-bar>` : nothing}
-        ${c?.fullscreen_button && !this._clean && !phone && !(this._roomId && c.room_panel !== false)
+        ${c?.fullscreen_button && !this._clean && !phone && !(this._roomId && c.room_panel !== false) && !this._irrigation
           ? html`<button class="fp3d-card-full" title=${t(this._fullscreen ? "fullscreen_exit" : "fullscreen")} aria-label=${t(this._fullscreen ? "fullscreen_exit" : "fullscreen")} @click=${() => this.toggleFullscreen()}>
               ${this._fullscreen ? "✕" : "⛶"}
             </button>`
           : nothing}
-        ${c?.dashboard && !this._clean && !phone && !(this._roomId && c.room_panel !== false)
+        ${c?.dashboard && !this._clean && !phone && !(this._roomId && c.room_panel !== false) && !this._irrigation
           ? html`<button class="fp3d-card-full fp3d-card-dash ${c.fullscreen_button ? "fp3d-card-dash-2" : ""}" title=${c.dashboard_label || c.dashboard} aria-label=${c.dashboard_label || c.dashboard} @click=${() => this.openDashboard(c.dashboard!)}>
               ${c.dashboard_label ? html`<span>${c.dashboard_label}</span>` : "⌂"}
             </button>`

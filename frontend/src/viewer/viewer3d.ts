@@ -44,6 +44,7 @@ import { buildSolarLive, solarLiveMaterial, writeSolarLevels, type SolarLive } f
 import { CHRISTMAS_PALETTE, dotTexture, roofLightPoints, roofSnowGeometry, wledColorTwinkle } from "./snow.ts";
 import { Firework } from "./firework.ts";
 import { buildPools, disposePools, type PoolPiece } from "./pool-water.ts";
+import { buildIrrigationWater, disposeIrrigationWater, updateIrrigationWater, type ActiveSprinkler } from "./irrigation-water.ts";
 import { accentOnUniform, accentUniform, applyStyleUniforms, floorLevelUniform, LIT_ATTRIBUTE, makeMorphMask, makeStyleUniforms, MORPH_ATTRIBUTE, MORPH_MASK_GLSL, MORPH_POLY_MAX, morphMaskUniforms, parseAccent, lineBlending, setMorphDefine, STYLE_LOOK, themed, themeIndex, type Theme, type ThemeUniform } from "./theme.ts";
 import { styleById, type StyleDef } from "../looks.ts";
 import { hexColor, setNaturalPalette } from "./palette.ts";
@@ -527,6 +528,8 @@ interface FloorView {
   soundGroup?: Group;
   /** Pool Pro: the living water and covers of the pools on this floor. */
   poolGroup?: Group;
+  /** Active irrigation spray water meshes on this floor. */
+  irrigationGroup?: Group;
   /** Pictures shown on lit screens, by furniture id. */
   screenPics: Map<string, { url: string; mesh: Mesh; texture: Texture | null }>;
   /** Content signatures: meshes are only rebuilt when these change. */
@@ -630,8 +633,10 @@ export class FloorplanViewer {
   /** Klang & Kino: the sound sources and whether any plays (then the rings animate). */
   private sound: SoundSource[] = [];
   private pools: PoolPiece[] = [];
+  private irrigation: ActiveSprinkler[] = [];
   /** A filter pump runs: the water moves (frames keep coming like for the energy flow). */
   private poolActive = false;
+  private irrigationActive = false;
   private soundActive = false;
   private flowTimer: ReturnType<typeof setTimeout> | undefined;
   private persons: PersonPin[] = [];
@@ -1232,6 +1237,29 @@ export class FloorplanViewer {
     if (!mine.length) return;
     fv.poolGroup = buildPools(mine, this.flowTime);
     fv.group.add(fv.poolGroup);
+  }
+
+  /** Active irrigation: 3D water spray arcs, sweeping jets and drip puddles for active sprinklers. */
+  setIrrigation(list: ActiveSprinkler[]): void {
+    const sig = (l: ActiveSprinkler[]) =>
+      l.map((s) => `${s.id}:${s.floorId}:${s.x.toFixed(2)},${s.z.toFixed(2)}:${s.rotation}:${s.fov}:${s.reach}:${s.active ? 1 : 0}`).join(";");
+    if (sig(list) === sig(this.irrigation)) return;
+    this.irrigation = list;
+    this.irrigationActive = list.some((s) => s.active);
+    for (const fv of this.floors) this.buildIrrigation(fv);
+    this.invalidate();
+  }
+
+  private buildIrrigation(fv: FloorView): void {
+    if (fv.irrigationGroup) {
+      disposeIrrigationWater(fv.irrigationGroup);
+      fv.group.remove(fv.irrigationGroup);
+      fv.irrigationGroup = undefined;
+    }
+    const mine = this.irrigation.filter((s) => s.floorId === fv.floor.id && s.active);
+    if (!mine.length) return;
+    fv.irrigationGroup = buildIrrigationWater(mine, this.flowTime.value);
+    fv.group.add(fv.irrigationGroup);
   }
 
   /** Klang & Kino: rings around playing speakers, lines between grouped players; an empty list clears them. */
@@ -3489,6 +3517,8 @@ export class FloorplanViewer {
       this.buildFlows(fv);
       fv.poolGroup = undefined;
       this.buildPoolWater(fv);
+      fv.irrigationGroup = undefined;
+      this.buildIrrigation(fv);
       this.buildLightSurface(fv);
       this.buildSun(fv);
     }
@@ -6405,6 +6435,7 @@ export class FloorplanViewer {
     if (this.flowActive) busy.push("flow");
     if (this.soundActive) busy.push("sound");
     if (this.poolActive) busy.push("pool");
+    if (this.irrigationActive) busy.push("irrigation");
     if (this.solarActive) busy.push("solar");
     if (this.effectTick) busy.push("effect");
     if (robotsMoving) busy.push("robot");
@@ -6416,6 +6447,13 @@ export class FloorplanViewer {
     this.lastFrame = moving ? now : 0;
     this.flowTime.value = this.flowSeconds();
     if (this.soundActive) this.animateSound(now);
+    if (this.irrigationActive) {
+      for (const fv of this.floors) {
+        if (!fv.irrigationGroup) continue;
+        const mine = this.irrigation.filter((s) => s.floorId === fv.floor.id && s.active);
+        if (mine.length) updateIrrigationWater(fv.irrigationGroup, mine, this.flowTime.value);
+      }
+    }
     this.updateWalls();
     if (this.projections.active) this.updateProjections();
     // the house's shadow belongs to the whole house – a house of one floor is whole with that floor shown, which is
@@ -6481,7 +6519,7 @@ export class FloorplanViewer {
         this.invalidate();
       }, 33);
     }
-    const flowing = this.flowActive || this.solarActive || this.soundActive || this.poolActive;
+    const flowing = this.flowActive || this.solarActive || this.soundActive || this.poolActive || this.irrigationActive;
     if (this.lowQuality) {
       // tablet level: every decorative animation shares one frame about 5 times a second (12 while fan blades turn,
       // fewer would make them seem to stand or turn back) and rests 30 s after the last touch

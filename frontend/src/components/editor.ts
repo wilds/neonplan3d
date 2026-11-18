@@ -79,6 +79,8 @@ import {
   FLOOR_MATERIALS,
   FURNITURE_GROUPS,
   ENERGY_DEVICES,
+  IRRIGATION_SPRINKLER_TYPES,
+  IRRIGATION_TYPES,
   gangPlateWidth,
   gangsOf,
   splitAliases,
@@ -189,7 +191,7 @@ const MAX_MOUNT_Y = 10;
 /** How far below the floor a piece outside the rooms may stand: steps down to a sunken terrace (#897). */
 const MIN_MOUNT_Y_OUT = -5;
 
-type Tool = "select" | "rect" | "polygon" | "measure" | "opening" | "furniture" | "outdoor" | "hole" | "wall" | "roof" | "energy" | "alarm" | "pool" | "led_strip";
+type Tool = "select" | "rect" | "polygon" | "measure" | "opening" | "furniture" | "outdoor" | "hole" | "wall" | "roof" | "energy" | "alarm" | "pool" | "led_strip" | "irrigation";
 
 type Drag =
   | { kind: "pan"; last: [number, number] }
@@ -201,6 +203,7 @@ type Drag =
   | { kind: "marquee"; start: Vec2; end: Vec2; add: boolean }
   | { kind: "rotate"; id: string; base: Building; moved: boolean }
   | { kind: "aim"; entityId: string; base: Building; moved: boolean }
+  | { kind: "aimFurn"; furnId: string; base: Building; moved: boolean }
   | { kind: "resize"; id: string; corner: [1 | -1, 1 | -1]; base: Building; moved: boolean; grab?: Vec2 }
   | { kind: "room"; roomId: string; start: Vec2; startScreen: [number, number]; base: Building; moved: boolean }
   | { kind: "rect"; start: Vec2; end: Vec2; outdoor?: boolean; hole?: boolean; roof?: boolean }
@@ -234,7 +237,7 @@ interface Guides {
 }
 
 /** Drags that change the document live (restored when cancelled, recorded in the history when done). */
-const EDIT_DRAGS = new Set(["vertex", "room", "device", "opening", "furniture", "furnset", "rotate", "resize", "outdoor", "roofmove", "roofcorner", "roofvertex", "outvertex", "outbox", "stripvertex", "pipept", "poolport", "pooldev", "pooljoint", "solarmove", "solarturn", "cablept", "holopt", "roomlabel", "bgmove", "bgscale", "bgrotate"]);
+const EDIT_DRAGS = new Set(["vertex", "room", "device", "opening", "furniture", "furnset", "rotate", "resize", "aimFurn", "outdoor", "roofmove", "roofcorner", "roofvertex", "outvertex", "outbox", "stripvertex", "pipept", "poolport", "pooldev", "pooljoint", "solarmove", "solarturn", "cablept", "holopt", "roomlabel", "bgmove", "bgscale", "bgrotate"]);
 
 const HISTORY = 100;
 /** An angle turned on by `d` degrees, kept between -180 and 180. */
@@ -2003,6 +2006,11 @@ export class Fp3dEditor extends LitElement {
       this.drag = { kind: "aim", entityId: aimEl.getAttribute("data-aim")!, base: this._doc, moved: false };
       return;
     }
+    const aimFurnEl = target.closest("[data-aim-furn]");
+    if (aimFurnEl && this.isAdmin) {
+      this.drag = { kind: "aimFurn", furnId: aimFurnEl.getAttribute("data-aim-furn")!, base: this._doc, moved: false };
+      return;
+    }
     const stripVertexEl = target.closest("[data-strip-vertex]");
     if (stripVertexEl && this.isAdmin) {
       const attr = stripVertexEl.getAttribute("data-strip-vertex")!;
@@ -2761,6 +2769,18 @@ export class Fp3dEditor extends LitElement {
         a = ((Math.round(a / step) * step) % 360 + 360) % 360;
         const reach = Math.min(50, Math.max(0.5, Math.round(Math.hypot(world[0] - pl.x, world[1] - pl.z) * 10) / 10));
         this.change((_, floor) => patchItem(floor.placements.find((q) => q.entity_id === drag.entityId), { rotation: a, reach }), drag.base, false);
+        break;
+      }
+      case "aimFurn": {
+        drag.moved = true;
+        const f = drag.base.floors.find((x) => x.id === this._floorId)?.furniture.find((x) => x.id === drag.furnId);
+        if (!f) return;
+        // the handle sits at the far edge of the spray wedge: it turns direction and sets reach
+        let a = (Math.atan2(-(world[0] - f.x), world[1] - f.z) * 180) / Math.PI;
+        const step = e.altKey ? 1 : 5;
+        a = ((Math.round(a / step) * step) % 360 + 360) % 360;
+        const reach = Math.min(30, Math.max(0.3, Math.round(Math.hypot(world[0] - f.x, world[1] - f.z) * 10) / 10));
+        this.change((_, floor) => patchItem(floor.furniture.find((q) => q.id === drag.furnId), { rotation: a, reach }), drag.base, false);
         break;
       }
       case "device": {
@@ -5143,6 +5163,230 @@ export class Fp3dEditor extends LitElement {
     `;
   }
 
+  private renderIrrigationToolPanel(floor: Floor | undefined) {
+    if (this.furnitureItem) {
+      return html`<button class="fp3d-btn fp3d-back" @click=${() => this.selectItem("furniture", null)}>‹ ${this.t("irrigation_short")}</button>
+        ${this.renderFurnitureForm(this.furnitureItem)}`;
+    }
+
+    const doc = this._doc;
+    const admin = this.isAdmin;
+    const cfg = doc.settings.irrigation ?? {};
+    const controllers = this.entityOptions((id) => id.startsWith("switch.") || id.startsWith("sensor.") || id.startsWith("valve."));
+
+    const quickAdd = (type: string, nameKey: I18nKey) => html`
+      <button
+        class="fp3d-btn fp3d-primary"
+        ?disabled=${!admin || !floor}
+        @click=${() => {
+          if (!floor) return;
+          this.addFurniture(type);
+          if (this.furnitureItem) {
+            const isDrip = type === "sprinkler_drip";
+            this.updateFurniture({
+              name: this.t(nameKey),
+              reach: isDrip ? 0.6 : type === "sprinkler_rotor" ? 6.0 : 3.5,
+              fov: isDrip ? 360 : 90,
+              irrigation_zone: "Zona 1",
+            });
+          }
+        }}
+      >
+        + ${this.t(nameKey)}
+      </button>
+    `;
+
+    const allIrrigation = doc.floors.flatMap((fl) =>
+      fl.furniture.filter((m) => IRRIGATION_TYPES.has(m.type)).map((m) => ({ fl, m })),
+    );
+
+    return html`
+      <section>
+        <div class="fp3d-h3row">
+          <h3>💧 ${this.t("irrigation_title")}</h3>
+        </div>
+        <p class="fp3d-sub">${this.t("irrigation_hint")}</p>
+
+        ${admin
+          ? html`
+              <div class="fp3d-form">
+                ${this.entitySelect(
+                  this.t("irrigation_controller_entity"),
+                  cfg.controller_entity ?? null,
+                  undefined,
+                  controllers,
+                  (v) => {
+                    const cur = this._doc.settings.irrigation ?? {};
+                    this.setSettings({ irrigation: { ...cur, controller_entity: v === "none" ? null : v } });
+                  },
+                )}
+              </div>
+
+              <div class="fp3d-field fp3d-wide">
+                <span>${this.t("irrigation_add_element")}</span>
+                <div class="fp3d-actions" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
+                  ${quickAdd("irrigation_controller", "furn_irrigation_controller")}
+                  ${quickAdd("sprinkler_popup", "furn_sprinkler_popup")}
+                  ${quickAdd("sprinkler_rotor", "furn_sprinkler_rotor")}
+                  ${quickAdd("sprinkler_drip", "furn_sprinkler_drip")}
+                  ${quickAdd("drip_line", "furn_drip_line")}
+                  ${quickAdd("irrigation_valve", "furn_irrigation_valve")}
+                </div>
+              </div>
+            `
+          : nothing}
+
+        <div class="fp3d-items-list" style="margin-top:14px;">
+          <h4>${this.t("irrigation_zones")} (${allIrrigation.length})</h4>
+          ${allIrrigation.length === 0
+            ? html`<p class="fp3d-sub">${this.t("irrigation_no_elements")}</p>`
+            : allIrrigation.map(
+                ({ fl, m }) => html`
+                  <div
+                    class="fp3d-row fp3d-selectable"
+                    style="cursor:pointer;padding:8px;border-radius:6px;background:rgba(255,255,255,0.04);margin-bottom:4px;"
+                    @click=${() => {
+                      if (fl.id !== this._floorId) this.selectFloor(fl.id);
+                      this.selectItem("furniture", m.id);
+                    }}
+                  >
+                    <div style="font-weight:600;font-size:13px;">
+                      ${m.name || this.t(`furn_${m.type}` as I18nKey)}
+                      ${m.irrigation_zone ? html`<span class="fp3d-tag" style="margin-left:6px;font-size:11px;background:#0284c7;color:#fff;padding:1px 6px;border-radius:4px;">${m.irrigation_zone}</span>` : nothing}
+                    </div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+                      ${fl.name} · ${m.reach ? `${m.reach.toFixed(1)}m` : ""} ${m.fov ? `${m.fov}°` : ""} ${m.rotation ? `dir ${m.rotation}°` : ""}
+                    </div>
+                  </div>
+                `,
+              )}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderIrrigationFurnitureFields(f: Furniture) {
+    if (!IRRIGATION_TYPES.has(f.type)) return nothing;
+    const admin = this.isAdmin;
+    const isSprinkler = IRRIGATION_SPRINKLER_TYPES.has(f.type);
+    const isDripLine = f.type === "drip_line";
+    const isDrip = f.type === "sprinkler_drip";
+    const reach = f.reach ?? (isDrip || isDripLine ? 0.6 : f.type === "sprinkler_rotor" ? 6.0 : 3.5);
+    const fov = f.fov ?? (isDrip || isDripLine ? 360 : 90);
+    const rot = f.rotation ?? 0;
+    const pitch = f.drip_pitch ?? 0.33;
+    const pitchCm = Math.round(pitch * 100);
+    const holesCount = Math.max(1, Math.floor(f.w / Math.max(0.08, pitch))) + 1;
+
+    return html`<div class="fp3d-form">
+      <label class="fp3d-field fp3d-wide"
+        >${this.t("irrigation_zone")}
+        <input
+          type="text"
+          maxlength="40"
+          .value=${f.irrigation_zone ?? ""}
+          placeholder=${this.t("irrigation_zone_placeholder")}
+          ?disabled=${!admin}
+          @change=${(e: Event) => this.updateFurniture({ irrigation_zone: (e.target as HTMLInputElement).value.trim() || null })}
+        />
+      </label>
+      ${isDripLine
+        ? html`
+            ${this.len(this.t("width"), f.w, (v) => this.updateFurniture({ w: Math.max(0.4, v) }))}
+            ${this.num(this.t("drip_pitch"), pitchCm, (v) => this.updateFurniture({ drip_pitch: Math.max(0.05, Math.min(5, v / 100)) }), 5, 5)}
+            <div class="fp3d-field fp3d-wide">
+              <span>${this.t("drip_pitch")} (${this.t("drip_holes_count", { n: holesCount })})</span>
+              <div class="fp3d-preset-row" style="display:flex;gap:4px;margin-top:4px;">
+                ${[15, 20, 30, 33, 50].map(
+                  (cm) => html`<button
+                    type="button"
+                    class="fp3d-chip ${pitchCm === cm ? "fp3d-menu-on" : ""}"
+                    ?disabled=${!admin}
+                    @click=${() => this.updateFurniture({ drip_pitch: cm / 100 })}
+                  >
+                    ${cm} cm
+                  </button>`,
+                )}
+              </div>
+            </div>
+          `
+        : isSprinkler
+          ? html`
+              ${this.num(this.t("irrigation_fov"), fov, (v) => this.updateFurniture({ fov: Math.max(15, Math.min(360, v)) }), 15, 15)}
+              <div class="fp3d-field fp3d-wide">
+                <span>${this.t("irrigation_fov_presets")}</span>
+                <div class="fp3d-preset-row" style="display:flex;gap:4px;margin-top:4px;">
+                  ${[90, 180, 270, 360].map(
+                    (angle) => html`<button
+                      type="button"
+                      class="fp3d-chip ${fov === angle ? "fp3d-menu-on" : ""}"
+                      ?disabled=${!admin}
+                      @click=${() => this.updateFurniture({ fov: angle })}
+                    >
+                      ${angle}°
+                    </button>`,
+                  )}
+                </div>
+              </div>
+              ${this.len(this.t("irrigation_reach"), reach, (v) => this.updateFurniture({ reach: Math.max(0.2, Math.min(30, v)) }), 0.5, 0.2)}
+              ${this.num(this.t("irrigation_direction"), rot, (v) => this.updateFurniture({ rotation: (((v % 360) + 360) % 360) }), 15, 0)}
+            `
+          : nothing}
+      ${this.entitySelect(
+        this.t("irrigation_water_sensor"),
+        f.water_sensor ?? null,
+        undefined,
+        this.entityOptions((id) => id.startsWith("binary_sensor.") || id.startsWith("sensor.") || id.startsWith("switch.")),
+        (v) => this.updateFurniture({ water_sensor: v === "none" ? null : v }),
+      )}
+      <p class="fp3d-sub fp3d-wide">${this.t("irrigation_water_sensor_hint")}</p>
+      <label class="fp3d-field fp3d-wide" title=${this.t("irrigation_service_hint")}
+        >${this.t("irrigation_service")}
+        <input
+          type="text"
+          maxlength="80"
+          .value=${f.action_service ?? ""}
+          placeholder=${this.t("irrigation_service_hint")}
+          ?disabled=${!admin}
+          @change=${(e: Event) => this.updateFurniture({ action_service: (e.target as HTMLInputElement).value.trim() || null })}
+        />
+      </label>
+      <label class="fp3d-field fp3d-wide" title=${this.t("irrigation_service_data_hint")}
+        >${this.t("irrigation_service_data")}
+        <input
+          type="text"
+          maxlength="160"
+          .value=${f.action_service_data ?? ""}
+          placeholder='{"run_seconds": 600}'
+          ?disabled=${!admin}
+          @change=${(e: Event) => this.updateFurniture({ action_service_data: (e.target as HTMLInputElement).value.trim() || null })}
+        />
+      </label>
+      <label class="fp3d-field fp3d-wide" title=${this.t("irrigation_service_stop_hint")}
+        >${this.t("irrigation_service_stop")}
+        <input
+          type="text"
+          maxlength="80"
+          .value=${f.action_service_off ?? ""}
+          placeholder=${this.t("irrigation_service_stop_hint")}
+          ?disabled=${!admin}
+          @change=${(e: Event) => this.updateFurniture({ action_service_off: (e.target as HTMLInputElement).value.trim() || null })}
+        />
+      </label>
+      <label class="fp3d-field fp3d-wide"
+        >${this.t("irrigation_service_stop_data")}
+        <input
+          type="text"
+          maxlength="160"
+          .value=${f.action_service_off_data ?? ""}
+          placeholder='{}'
+          ?disabled=${!admin}
+          @change=${(e: Event) => this.updateFurniture({ action_service_off_data: (e.target as HTMLInputElement).value.trim() || null })}
+        />
+      </label>
+    </div>`;
+  }
+
   private renderRoofSectionForm(sec: RoofSection) {
     const admin = this.isAdmin;
     const set = (patch: Partial<RoofSection>) => this.updateRoofSection(patch);
@@ -6573,7 +6817,7 @@ export class Fp3dEditor extends LitElement {
               : nothing}
           </div>`;
         })}
-        ${plain("furniture", this.t("tool_furniture"))} ${plain("energy", this.t("tool_energy"))} ${plain("alarm", this.t("alarm_short"))}
+        ${plain("furniture", this.t("tool_furniture"))} ${plain("energy", this.t("tool_energy"))} ${plain("alarm", this.t("alarm_short"))} ${plain("irrigation", this.t("irrigation_short"))}
       </div>
       <div class="fp3d-seg fp3d-seg-menu">
         <button class="fp3d-undo" ?disabled=${!this._canUndo} @click=${() => this.undo()} title=${`${this.t("undo")} (Ctrl+Z)`} aria-label=${this.t("undo")}>↶</button>
@@ -11318,7 +11562,7 @@ export class Fp3dEditor extends LitElement {
           ${vertices}
         </g>`;
       }
-      return svg`<g data-furniture=${f.id} class=${`fp3d-furn${sel || member ? " fp3d-furn-sel" : ""}${lit ? " fp3d-furn-lit" : ""}${f.show_if?.entity && !furnitureShown(this.hass, f) ? " fp3d-furn-away" : ""}${(ENERGY_DEVICES as readonly string[]).includes(f.type) ? " fp3d-energy-item" : ""}`}>
+      return svg`${IRRIGATION_SPRINKLER_TYPES.has(f.type) ? this.renderSprinklerWedge(f, sel) : nothing}<g data-furniture=${f.id} class=${`fp3d-furn${sel || member ? " fp3d-furn-sel" : ""}${lit ? " fp3d-furn-lit" : ""}${f.show_if?.entity && !furnitureShown(this.hass, f) ? " fp3d-furn-away" : ""}${(ENERGY_DEVICES as readonly string[]).includes(f.type) ? " fp3d-energy-item" : ""}`}>
         <g transform="translate(${cx} ${cy}) rotate(${f.rotation}) scale(${f.mirror ? -k : k} ${k})">
           <rect class="fp3d-furn-body" x=${-f.w / 2} y=${-f.d / 2} width=${f.w} height=${f.d} />
           <g class="fp3d-furn-sym">${furnitureSymbol(f.type, f.w, f.d, f.variant)}</g>
@@ -11597,6 +11841,34 @@ export class Fp3dEditor extends LitElement {
       ${fov >= 360 ? svg`<circle cx=${cx} cy=${cy} r=${rp} />` : svg`<path d=${path} />`}
       ${sel && this.isAdmin && !pl.locked
         ? svg`<g class="fp3d-rotate" data-aim=${pl.entity_id}>
+            <line x1=${cx} y1=${cy} x2=${hx} y2=${hy} />
+            <circle cx=${hx} cy=${hy} r="16" class="fp3d-hit" />
+            <circle cx=${hx} cy=${hy} r="8" />
+            <path d="M${hx - 4} ${hy - 1}a4 4 0 1 1 2 3.5" />
+          </g>`
+        : nothing}
+    </g>`;
+  }
+
+  /** An irrigation sprinkler's spray sector in the plan; dragging the handle turns direction and adjusts reach. */
+  private renderSprinklerWedge(f: Furniture, sel: boolean) {
+    if (f.type === "drip_line") return nothing;
+    const isDrip = f.type === "sprinkler_drip";
+    const fov = f.fov ?? (isDrip ? 360 : 90);
+    const reach = f.reach ?? (isDrip ? 0.6 : f.type === "sprinkler_rotor" ? 6.0 : 3.5);
+    const a = ((f.rotation ?? 0) * Math.PI) / 180;
+    const at = (t: number, r: number): [number, number] => this.toScreen([f.x - Math.sin(a + t) * r, f.z + Math.cos(a + t) * r]);
+    const [cx, cy] = this.toScreen([f.x, f.z]);
+    const half = ((Math.min(fov, 359.9) * Math.PI) / 180) / 2;
+    const [x0, y0] = at(-half, reach);
+    const [x1, y1] = at(half, reach);
+    const rp = reach * this._view.scale;
+    const path = fov >= 360 ? "" : `M${cx} ${cy}L${x0} ${y0}A${rp} ${rp} 0 ${half > Math.PI / 2 ? 1 : 0} 1 ${x1} ${y1}Z`;
+    const [hx, hy] = at(0, reach);
+    return svg`<g class="fp3d-wedge fp3d-sprinkler-wedge ${sel ? "fp3d-wedge-sel" : ""}">
+      ${fov >= 360 ? svg`<circle cx=${cx} cy=${cy} r=${rp} />` : svg`<path d=${path} />`}
+      ${sel && this.isAdmin && !f.locked
+        ? svg`<g class="fp3d-rotate" data-aim-furn=${f.id}>
             <line x1=${cx} y1=${cy} x2=${hx} y2=${hy} />
             <circle cx=${hx} cy=${hy} r="16" class="fp3d-hit" />
             <circle cx=${hx} cy=${hy} r="8" />
@@ -11889,6 +12161,7 @@ export class Fp3dEditor extends LitElement {
     if (this._tool === "roof") return this.renderRoofPanel();
     if (this._tool === "energy") return this.renderEnergyPanel();
     if (this._tool === "alarm") return this.renderAlarmConfigPanel();
+    if (this._tool === "irrigation") return this.renderIrrigationToolPanel(floor);
     if (this._tool === "pool") return this.renderPoolPanel(floor);
     // furnishing: the library and the selected item come first
     if (this._tool === "furniture" && floor && admin) {
@@ -13082,6 +13355,7 @@ export class Fp3dEditor extends LitElement {
         </div>`;
       })()}
       ${isElectric(f.type) ? this.renderFurnitureLinks(f) : !NO_STATE_TYPES.has(f.type) ? html`<div class="fp3d-form fp3d-links">${this.renderStateLinks(f)}</div>` : nothing} ${GANG_TYPES.has(f.type) ? this.renderGangsForm(f) : nothing} ${TECH_TYPES.has(f.type) ? this.renderTechForm(f) : nothing} ${f.type === "parking" ? this.renderParkingForm(f) : nothing} ${f.type === "neon_sign" ? this.renderSignForm(f) : nothing} ${f.type === "waste_bin" || f.type === "mailbox" ? this.renderHouseholdForm(f) : this.renderHouseholdExtras(f)}
+      ${this.renderIrrigationFurnitureFields(f)}
       ${this.renderShowIf(f)}
       ${this.renderModuleFurnitureFields(f)}
       ${f.type.startsWith("pack:mastershort.vehicles:") && this.isAdmin
@@ -14818,6 +15092,68 @@ export class Fp3dEditor extends LitElement {
             >
             <p class="fp3d-sub fp3d-wide">${this.t("camera_aim_hint")}</p>
             ${this.renderCameraDetections(pl.entity_id)}`
+          : nothing}
+        ${kind !== "camera" && (kind === "switch" || pl.entity_id.startsWith("valve.") || pl.fov != null || pl.reach != null || pl.irrigation_zone != null || pl.water_sensor != null)
+          ? html`
+              <label class="fp3d-field fp3d-wide"
+                >${this.t("irrigation_zone")}
+                <input
+                  type="text"
+                  maxlength="40"
+                  .value=${pl.irrigation_zone ?? ""}
+                  placeholder=${this.t("irrigation_zone_placeholder")}
+                  ?disabled=${!admin}
+                  @change=${(e: Event) => this.updateDevice({ irrigation_zone: (e.target as HTMLInputElement).value.trim() || null })}
+                />
+              </label>
+              ${this.num(this.t("irrigation_fov"), pl.fov ?? 90, (v) => this.updateDevice({ fov: Math.min(360, Math.max(15, v)) }), 15, 15)}
+              <div class="fp3d-field fp3d-wide">
+                <span>${this.t("irrigation_fov_presets")}</span>
+                <div class="fp3d-preset-row" style="display:flex;gap:4px;margin-top:4px;">
+                  ${[90, 180, 270, 360].map(
+                    (angle) => html`<button
+                      type="button"
+                      class="fp3d-chip ${(pl.fov ?? 90) === angle ? "fp3d-menu-on" : ""}"
+                      ?disabled=${!admin}
+                      @click=${() => this.updateDevice({ fov: angle })}
+                    >
+                      ${angle}°
+                    </button>`,
+                  )}
+                </div>
+              </div>
+              ${this.len(this.t("irrigation_reach"), pl.reach ?? 3.5, (v) => this.updateDevice({ reach: Math.min(50, Math.max(0.3, v)) }), 0.5, 0.3)}
+              ${this.entitySelect(
+                this.t("irrigation_water_sensor"),
+                pl.water_sensor ?? null,
+                undefined,
+                this.entityOptions((id) => id.startsWith("binary_sensor.") || id.startsWith("sensor.") || id.startsWith("switch.")),
+                (v) => this.updateDevice({ water_sensor: v === "none" ? null : v }),
+              )}
+              <p class="fp3d-sub fp3d-wide">${this.t("irrigation_water_sensor_hint")}</p>
+              <label class="fp3d-field fp3d-wide" title=${this.t("irrigation_service_hint")}
+                >${this.t("irrigation_service")}
+                <input
+                  type="text"
+                  maxlength="80"
+                  .value=${pl.action_service ?? ""}
+                  placeholder=${this.t("irrigation_service_hint")}
+                  ?disabled=${!admin}
+                  @change=${(e: Event) => this.updateDevice({ action_service: (e.target as HTMLInputElement).value.trim() || null })}
+                />
+              </label>
+              <label class="fp3d-field fp3d-wide" title=${this.t("irrigation_service_data_hint")}
+                >${this.t("irrigation_service_data")}
+                <input
+                  type="text"
+                  maxlength="160"
+                  .value=${pl.action_service_data ?? ""}
+                  placeholder='{"run_seconds": 600}'
+                  ?disabled=${!admin}
+                  @change=${(e: Event) => this.updateDevice({ action_service_data: (e.target as HTMLInputElement).value.trim() || null })}
+                />
+              </label>
+            `
           : nothing}
         ${kind && TOGGLE_KINDS.has(kind)
           ? html`<label class="fp3d-check fp3d-wide" title=${this.t("device_confirm_hint")}
@@ -19360,6 +19696,17 @@ export class Fp3dEditor extends LitElement {
       }
       .fp3d-wedge .fp3d-rotate circle {
         pointer-events: auto;
+      }
+      .fp3d-sprinkler-wedge path,
+      .fp3d-sprinkler-wedge circle:not(.fp3d-hit) {
+        fill: rgba(14, 165, 233, 0.22);
+        stroke: rgba(14, 165, 233, 0.65);
+        stroke-dasharray: 4 3;
+      }
+      .fp3d-sprinkler-wedge.fp3d-wedge-sel path,
+      .fp3d-sprinkler-wedge.fp3d-wedge-sel > circle {
+        fill: rgba(14, 165, 233, 0.35);
+        stroke: #38bdf8;
       }
       .fp3d-device circle:not(.fp3d-hit) {
         fill: #111a2e;

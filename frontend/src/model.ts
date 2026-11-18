@@ -294,6 +294,24 @@ export interface Furniture {
   alarm_modes?: string[] | null;
   /** Radiator: a sensor that says whether it heats (a valve's work state, an opening percentage) when the thermostat does not (D637). */
   heat_sensor?: EntityRef;
+  /** Irrigation: opening angle / field of view of spray in degrees (null = 90° for popup/rotor, 360° for drip). */
+  fov?: number | null;
+  /** Irrigation: spray distance / reach in metres (null = default for item kind). */
+  reach?: number | null;
+  /** Irrigation: zone name or identifier (e.g. "1", "Prato Nord"). */
+  irrigation_zone?: string | null;
+  /** Irrigation drip line: spacing / pitch between emitter holes in metres (e.g. 0.33 m = 33 cm). */
+  drip_pitch?: number | null;
+  /** Irrigation: state sensor (e.g. binary_sensor.* or sensor.* reporting whether water is currently running). */
+  water_sensor?: EntityRef;
+  /** Irrigation: custom service call for activation (e.g. "opensprinkler.run" or "switch.turn_on"). */
+  action_service?: string | null;
+  /** Irrigation: optional JSON parameters for the activation service (e.g. '{"run_seconds": 600}'). */
+  action_service_data?: string | null;
+  /** Irrigation: custom service call for stop (e.g. "opensprinkler.stop" or "switch.turn_off"). */
+  action_service_off?: string | null;
+  /** Irrigation: optional JSON parameters for the stop service. */
+  action_service_off_data?: string | null;
   /** Haushalt Pro: a consumable or service of the item (a filter, salt, rinse aid): due when on, at or below `service_min`, or its date. */
   service?: EntityRef;
   /** Haushalt Pro: the number (percent or days left) at or below which the service is due (null = 10). */
@@ -457,6 +475,18 @@ export interface Placement {
   detect_popup?: boolean;
   /** Cameras: the detection sensors that count, chosen by hand (any device's); null = those of the camera's device (#815). */
   detect_sensors?: string[] | null;
+  /** Irrigation: zone name or identifier (e.g. "1", "Prato Nord"). */
+  irrigation_zone?: string | null;
+  /** Irrigation: state sensor (e.g. binary_sensor.* or sensor.* reporting whether water is currently running). */
+  water_sensor?: string | null;
+  /** Irrigation: custom service call for activation (e.g. "opensprinkler.run" or "switch.turn_on"). */
+  action_service?: string | null;
+  /** Irrigation: optional JSON parameters for the activation service (e.g. '{"run_seconds": 600}'). */
+  action_service_data?: string | null;
+  /** Irrigation: custom service call for stop (e.g. "opensprinkler.stop" or "switch.turn_off"). */
+  action_service_off?: string | null;
+  /** Irrigation: optional JSON parameters for the stop service. */
+  action_service_off_data?: string | null;
 }
 
 export interface Background {
@@ -802,6 +832,11 @@ export interface AlarmSettings {
   pin?: string | null;
 }
 
+export interface IrrigationSettings {
+  /** The primary irrigation controller entity (e.g. OpenSprinkler switch/controller or master valve). */
+  controller_entity?: string | null;
+}
+
 export interface BuildingSettings extends StylePlan {
   /** The outside of the house in the homely styles ("#rrggbb", null = like the walls). */
   facade_color?: string | null;
@@ -902,6 +937,8 @@ export interface BuildingSettings extends StylePlan {
   surroundings?: Surroundings | null;
   /** Alarm panel configuration (available armed modes, primary entity, PIN code). */
   alarm?: AlarmSettings | null;
+  /** Irrigation configuration (controller entity e.g. OpenSprinkler). */
+  irrigation?: IrrigationSettings | null;
   /** Plan lock: rooms, walls, doors, windows and outdoor areas cannot be moved by accident. */
   lock_plan?: boolean;
   /** The camera the house view opens with (3D view, card, kiosk); null = fitted from the front left. */
@@ -1618,6 +1655,12 @@ export const FURNITURE_TYPES = [
   "sensor_presence",
   "sensor_contact",
   "siren",
+  "irrigation_controller",
+  "sprinkler_popup",
+  "sprinkler_rotor",
+  "sprinkler_drip",
+  "drip_line",
+  "irrigation_valve",
 ] as const;
 
 /** Furniture library sections (the editor lists them in this order). */
@@ -1630,7 +1673,8 @@ export const FURNITURE_GROUPS: Record<string, FurnitureType[]> = {
   bath: ["bathtub", "shower", "wc", "washbasin", "washer", "dryer"],
   work: ["desk", "worktop", "office_chair", "tall_cabinet", "coat_rack", "radiator", "ac_unit", "stairs", "stairs_u", "robot_vacuum"],
   vehicles: ["parking"],
-  outdoor: ["awning"],
+  outdoor: ["awning", "irrigation_controller", "sprinkler_popup", "sprinkler_rotor", "sprinkler_drip", "drip_line", "irrigation_valve"],
+  irrigation: ["irrigation_controller", "sprinkler_popup", "sprinkler_rotor", "sprinkler_drip", "drip_line", "irrigation_valve"],
   household: ["waste_bin", "mailbox"],
   security: ["sensor_pir", "sensor_presence", "sensor_contact", "siren"],
   switches: ["wall_switch", "wall_socket", "wifi_ap", "water_heater", "sensor_pir", "sensor_presence", "sensor_contact", "siren"],
@@ -1641,6 +1685,23 @@ export const FURNITURE_GROUPS: Record<string, FurnitureType[]> = {
 export const POOL_DEVICES = ["pool_pump", "pool_filter", "pool_heat_pump", "pool_dosing", "pool_valve"] as const;
 /** Height of a ball valve's pipe above the floor. */
 export const POOL_VALVE_Y = 0.3;
+
+/** Irrigation devices: controllers, pop-up sprinklers, rotors, drip lines, and valves. */
+export const IRRIGATION_SPRINKLER_TYPES = new Set<string>([
+  "sprinkler_popup",
+  "sprinkler_rotor",
+  "sprinkler_drip",
+  "drip_line",
+]);
+
+export const IRRIGATION_TYPES = new Set<string>([
+  "irrigation_controller",
+  "sprinkler_popup",
+  "sprinkler_rotor",
+  "sprinkler_drip",
+  "drip_line",
+  "irrigation_valve",
+]);
 
 export const ENERGY_DEVICES = ["meter", "inverter", "home_battery", "wallbox", "grid_point"] as const;
 
@@ -1877,6 +1938,7 @@ export const TECH_SIZE: Record<string, [number, number, number]> = {
 export function techBase(f: { type: string; variant?: string | null; h: number }, ceiling: number): number | null {
   if (f.type === "wifi_ap") return f.variant === "wall" ? 2.1 : Math.max(0, ceiling - f.h);
   if (f.type === "water_heater") return f.variant === "wall" ? 1.1 : 0;
+  if (f.type === "irrigation_controller") return 1.3;
   if (f.type === "sensor_pir") return f.variant === "ceiling" ? Math.max(0, ceiling - f.h) : 2.2;
   if (f.type === "sensor_presence") return f.variant === "wall" ? 2.0 : Math.max(0, ceiling - f.h);
   if (f.type === "sensor_contact") return 1.2;
@@ -1886,6 +1948,7 @@ export function techBase(f: { type: string; variant?: string | null; h: number }
 
 export const ELECTRIC_FURNITURE = new Set<string>([
   ...LAMP_TYPES,
+  ...IRRIGATION_TYPES,
   "radiator",
   "ac_unit",
   "awning",
@@ -1941,6 +2004,12 @@ export const FURNITURE_SIZE: Record<FurnitureType, [number, number, number]> = {
   pool_heat_pump: [1.0, 0.45, 0.75],
   pool_dosing: [0.4, 0.2, 0.5],
   pool_valve: [0.16, 0.1, 0.14],
+  irrigation_controller: [0.26, 0.1, 0.22],
+  sprinkler_popup: [0.12, 0.12, 0.1],
+  sprinkler_rotor: [0.15, 0.15, 0.18],
+  sprinkler_drip: [0.08, 0.08, 0.06],
+  drip_line: [4.0, 0.03, 0.02],
+  irrigation_valve: [0.16, 0.1, 0.14],
   // the meter cabinet hangs on the wall as well
   meter: [0.55, 0.21, 1.1],
   // the grid connection: a small street cabinet at the edge of the plot

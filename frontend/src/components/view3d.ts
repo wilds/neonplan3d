@@ -49,7 +49,8 @@ import { neonSignPicture, signLight, signLines } from "../neon-sign.ts";
 import { applianceIdle, applianceOf, type ApplianceKind, binColors, calendarItems, type DayEvent, fetchDayEvents, binDue, binNext, binOut, binOutToggleable, binTagsShown, doorsOf, fetchPickups, FinishedMemory, fridgeOpenTooLong, groupTags, hassCountry, isFinishedState, mailboxPost, nextFridgeCheck, plantThirsty, remainingMinutes, remainingText, servicesDue, setHouseholdCountry, wasteCalendars, isPackPlant, type HouseholdItem, type HouseholdTag, type Pickup } from "../household.ts";
 import { deviceSensors, energySummary, pvWithStrings, stringsPower, fetchSolarRows, fetchTodayChange, fieldLevels, fieldPowers, findConsumers, flowColor, flowSegments, gridPoint, powerSensorFor, readPower, solarCurvePath, solarDayFromStats, type Consumer, type EnergySummary, type StatRow } from "../energy.ts";
 import { fieldFace, fieldSize, roofFaces, roofWindowRoom } from "../solar.ts";
-import { type CustomButton, type EntityRef, DEFAULT_HOLOGRAM, lockAlong, type PoolPipe, type RoofWindow, type SolarField, uid } from "../model.ts";
+import { type CustomButton, type EntityRef, DEFAULT_HOLOGRAM, lockAlong, type PoolPipe, type RoofWindow, type SolarField, uid, IRRIGATION_SPRINKLER_TYPES, IRRIGATION_TYPES } from "../model.ts";
+import type { ActiveSprinkler } from "../viewer/irrigation-water.ts";
 
 /** A hologram card: the house's balance on the main plant, one plant (a balcony plant) on its own, or a device. */
 /** The unit a meter counts in (m³ when it does not say). */
@@ -1719,6 +1720,31 @@ export class Fp3dView3d extends LitElement {
     // the modules' water (Pool Pro: living water, the cover) and their glass cards
     const water: PoolPiece[] = this.scene.filter((p): p is Extract<ScenePiece, { kind: "water" }> => p.kind === "water").map((p) => ({ ...p, level: this.dimmed ? p.level * 0.4 : p.level }));
     v.setPools(water);
+    const irrigationEmitters: ActiveSprinkler[] = [];
+    for (const fl of b.floors) {
+      for (const m of fl.furniture) {
+        if (!IRRIGATION_SPRINKLER_TYPES.has(m.type)) continue;
+        const stateEntity = m.water_sensor && m.water_sensor !== "none" ? m.water_sensor : (m.entity && m.entity !== "none" ? m.entity : null);
+        const st = stateEntity ? hass?.states[stateEntity]?.state?.toLowerCase() : null;
+        const active = st === "on" || st === "open" || st === "watering" || st === "active" || st === "true";
+        irrigationEmitters.push({
+          id: m.id,
+          floorId: fl.id,
+          x: m.x,
+          y: mountBase(fl, m) + (m.h ?? 0.1),
+          z: m.z,
+          rotation: m.rotation ?? 0,
+          fov: m.fov ?? (m.type === "sprinkler_drip" || m.type === "drip_line" ? 360 : 90),
+          reach: m.reach ?? (m.type === "sprinkler_drip" || m.type === "drip_line" ? 0.6 : m.type === "sprinkler_rotor" ? 6.0 : 3.5),
+          type: m.type as "sprinkler_popup" | "sprinkler_rotor" | "sprinkler_drip" | "drip_line",
+          active,
+          zone: m.irrigation_zone ?? null,
+          length: m.w,
+          dripPitch: m.drip_pitch ?? 0.33,
+        });
+      }
+    }
+    v.setIrrigation(irrigationEmitters);
     if (anyModule()) {
       const holoSize = (b.settings.roof.hologram ?? DEFAULT_HOLOGRAM).size;
       for (const card of moduleCards(this.sceneHost(hass, b))) {
@@ -4431,6 +4457,94 @@ export class Fp3dView3d extends LitElement {
     </button>`;
   }
 
+  private getIrrigationStatus(): { hasIrrigation: boolean; activeCount: number; activeStations: string[] } {
+    const b = this.building;
+    if (!b) return { hasIrrigation: false, activeCount: 0, activeStations: [] };
+    let count = 0;
+    let has = !!b.settings.irrigation?.controller_entity;
+    const activeNames = new Set<string>();
+
+    for (const fl of b.floors) {
+      for (const m of fl.furniture) {
+        if (IRRIGATION_TYPES.has(m.type)) {
+          has = true;
+          if (IRRIGATION_SPRINKLER_TYPES.has(m.type) || m.type === "irrigation_valve") {
+            const stateEntity = m.water_sensor && m.water_sensor !== "none" ? m.water_sensor : (m.entity && m.entity !== "none" ? m.entity : null);
+            const st = stateEntity ? this.hass?.states[stateEntity]?.state?.toLowerCase() : null;
+            if (st === "on" || st === "open" || st === "watering" || st === "active" || st === "true") {
+              count++;
+              const name = m.name?.trim() || (stateEntity && this.hass ? entityName(this.hass, stateEntity) : "") || m.irrigation_zone?.trim() || translate(this.hass, `furn_${m.type}` as I18nKey);
+              if (name) activeNames.add(name);
+            }
+          }
+        }
+      }
+
+      for (const pl of fl.placements ?? []) {
+        if (
+          pl.entity_id.startsWith("camera.") ||
+          pl.entity_id.startsWith("light.") ||
+          pl.entity_id.startsWith("media_player.") ||
+          pl.entity_id.startsWith("climate.") ||
+          pl.entity_id.startsWith("cover.")
+        ) {
+          continue;
+        }
+
+        const isIrrigPlacement =
+          !!pl.irrigation_zone ||
+          !!pl.water_sensor ||
+          pl.entity_id.startsWith("valve.opensprinkler_") ||
+          pl.entity_id.startsWith("switch.opensprinkler_") ||
+          ((pl.entity_id.startsWith("valve.") || pl.entity_id.startsWith("switch.")) &&
+            (pl.entity_id.includes("irrig") || pl.entity_id.includes("sprinkler")));
+
+        if (!isIrrigPlacement) continue;
+        has = true;
+        const stateEntity = pl.water_sensor && pl.water_sensor !== "none" ? pl.water_sensor : pl.entity_id;
+        const st = this.hass?.states[stateEntity]?.state?.toLowerCase();
+        if (st === "on" || st === "open" || st === "watering" || st === "active" || st === "true") {
+          count++;
+          const name = pl.name?.trim() || (this.hass ? entityName(this.hass, pl.entity_id) : "") || pl.irrigation_zone?.trim();
+          if (name) activeNames.add(name);
+        }
+      }
+    }
+    return { hasIrrigation: has, activeCount: count, activeStations: Array.from(activeNames) };
+  }
+
+  private renderIrrigationButton() {
+    if (this.clean || this._walk || this.panelOpen || this.ro) return nothing;
+    const st = this.getIrrigationStatus();
+    if (!st.hasIrrigation) return nothing;
+    const hasWalk = this.walkable && !this.ro && !!this.building && !!this.hass && !this.panelOpen && !this._walk;
+    const alarmSt = this.getAlarmStatus();
+    const hasAlarm = !this.clean && !this._walk && !this.panelOpen && !this.ro && alarmSt.hasAlarm;
+    let top = 12;
+    if (hasWalk) top += 46;
+    if (hasAlarm) top += 46;
+
+    const active = st.activeCount > 0;
+    const stationsText = st.activeStations.join(", ");
+    const label = active
+      ? (stationsText || `${st.activeCount} ${translate(this.hass, "irrigation_active")}`)
+      : translate(this.hass, "irrigation_short");
+    const title = active && stationsText
+      ? `${translate(this.hass, "irrigation_title")}: ${stationsText}`
+      : translate(this.hass, "irrigation_hint");
+
+    return html`<button
+      class="fp3d-alarm-btn fp3d-irrigation-btn ${active ? "fp3d-irrigation-btn-active" : ""}"
+      style="top:${top}px;${active ? "border: 1px solid #38bdf8; color: #ffffff; background: rgba(2, 132, 199, 0.85); box-shadow: 0 0 16px rgba(56, 189, 248, 0.6);" : ""}"
+      title=${title}
+      aria-label=${translate(this.hass, "irrigation_title")}
+      @click=${() => this.dispatchEvent(new CustomEvent("irrigation-toggle", { bubbles: true, composed: true }))}
+    >
+      <span class="fp3d-alarm-btn-icon">${active ? "💦" : "💧"}</span>
+      <span class="fp3d-alarm-btn-label">${label}</span>
+    </button>`;
+  }
+
   /** Haushalt Pro: the glass card "Today in the household" – what is due, tapped it opens the entity. */
   private renderHousehold() {
     if (!this._household.length || !this.householdCard || !hasFeature("household") || this.panelOpen) return nothing;
@@ -4441,9 +4555,12 @@ export class Fp3dView3d extends LitElement {
     const hasWalk = this.walkable && !this.ro && !!this.building && !!this.hass && !this.panelOpen && !this._walk;
     const st = this.getAlarmStatus();
     const hasAlarm = !this.ro && !this.clean && !this._walk && !this.panelOpen && st.hasAlarm;
+    const irrigSt = this.getIrrigationStatus();
+    const hasIrrig = !this.ro && !this.clean && !this._walk && !this.panelOpen && irrigSt.hasIrrigation;
     let hhTop = 12;
     if (hasWalk) hhTop += 46;
     if (hasAlarm) hhTop += 46;
+    if (hasIrrig) hhTop += 46;
 
     return html`<div class="fp3d-hh ${this._hhFolded ? "fp3d-hh-folded" : ""}" style="top:${hhTop}px">
       <button class="fp3d-hh-head" aria-expanded=${!this._hhFolded} @click=${fold}>🏠 ${translate(this.hass, "hh_title")} <b>${this._household.length}</b></button>
@@ -6696,6 +6813,10 @@ export class Fp3dView3d extends LitElement {
     return this.viewer?.currentView() ?? null;
   }
 
+  focusPoint(floorId: string, x: number, z: number, y = 0.2, key: string | null = null): void {
+    this.viewer?.focus(floorId, x, z, y, key);
+  }
+
   resetView(): void {
     this._through = null;
     this.viewer?.resetView();
@@ -6841,7 +6962,7 @@ export class Fp3dView3d extends LitElement {
       ${this.renderZoomBackground()}
       ${this._error ? html`<p class="fp3d-error">${this._error}</p>` : nothing} ${this.clean ? nothing : this.renderEnergy()} ${this.renderHologram()} ${this.clean ? nothing : this.renderLegend()}
       ${this.clean && this._find !== null && !this._walk ? this.renderFind() : nothing}
-      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderAlarmButton()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
+      ${this.renderClock()} ${this.renderAlerts()} ${this.clean || this._walk ? nothing : html`${this.renderHousehold()} ${this.renderAlarmButton()} ${this.renderIrrigationButton()} ${this.renderThumbs()} ${this.renderScenes()} ${this.renderFind()} ${this.renderCentral()}`} ${this.clean ? nothing : this.renderWalk()} ${this.renderSwipe()} ${this.renderInfo()} ${this.renderBinInfo()} ${this.renderGangMenu()} ${this.renderThrough()} ${this.renderCamPop()} ${this.renderCameraWall()} ${this.renderSheet()} ${this.renderModulePopup()} ${this.renderSettings()} ${this.renderNote()}
       ${this.clean ? nothing : this.renderProHint()} ${this.renderMenu()} ${this.renderEye()} ${this.building?.settings.surroundings?.on && this.surroundings ? html`<a class="fp3d-osm-credit" href=${OSM_COPYRIGHT} target="_blank" rel="noopener">© OpenStreetMap</a>` : nothing}
       ${this.renderMic()} ${this.renderFlyIn()}
       ${this._spotHint ? html`<button class="fp3d-spot-hint" @click=${() => this.viewer?.pickSpot(null)}>📍 ${this._spotHint} <span aria-hidden="true">✕</span></button>` : nothing}
@@ -7062,7 +7183,7 @@ export class Fp3dView3d extends LitElement {
       }
       .fp3d-hh {
         position: absolute;
-        right: 12px;
+        right: var(--fp3d-walk-right, 12px);
         top: 58px;
         z-index: 3;
         width: min(250px, calc(100% - 24px));
@@ -7576,7 +7697,8 @@ export class Fp3dView3d extends LitElement {
       .fp3d-alarm-btn {
         position: absolute;
         z-index: 3;
-        right: 12px;
+        right: var(--fp3d-walk-right, 12px);
+        max-width: min(340px, calc(100% - 24px));
         height: 38px;
         display: flex;
         align-items: center;
@@ -7590,6 +7712,11 @@ export class Fp3dView3d extends LitElement {
         box-shadow: var(--fp3d-shadow);
         cursor: pointer;
         transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .fp3d-alarm-btn-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .fp3d-alarm-btn:hover {
         transform: scale(1.04);

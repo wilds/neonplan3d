@@ -20,6 +20,7 @@ import { OtherPlans } from "./plan-watch.ts";
 import "./components/room-bar.ts";
 import "./components/room-panel.ts";
 import "./components/alarm-panel.ts";
+import "./components/irrigation-panel.ts";
 import "./components/view3d.ts";
 import { formatPower } from "./components/view3d.ts";
 import { languageReady, loadLanguage, translate, type I18nKey } from "./i18n.ts";
@@ -115,6 +116,7 @@ export class Floorplan3dPanel extends LitElement {
     _trail: { state: true },
     _cameraWall: { state: true },
     _alarm: { state: true },
+    _irrigation: { state: true },
     _clean: { state: true },
     _phone: { state: true },
     _phoneAsk: { state: true },
@@ -202,6 +204,7 @@ export class Floorplan3dPanel extends LitElement {
   private declare _trail: boolean;
   private declare _cameraWall: boolean;
   private declare _alarm: boolean;
+  private declare _irrigation: boolean;
   /** Clean view (the eye): only the stage, remembered on this device. */
   private declare _clean: boolean;
   /** The phone view "What is going on?": chosen per device; a phone is asked once whether to try it. */
@@ -299,6 +302,7 @@ export class Floorplan3dPanel extends LitElement {
     this._trail = prefs.get("trail") === "1";
     this._cameraWall = false;
     this._alarm = prefs.get("alarm") === "1";
+    this._irrigation = prefs.get("irrigation") === "1";
     this._clean = prefs.get("clean") === "1";
     this._phone = prefs.get("phone") === "1";
     this._nowMode = "bar";
@@ -373,6 +377,10 @@ export class Floorplan3dPanel extends LitElement {
     }
     if (!roomId) return;
     this._roomId = roomId === this._roomId ? null : roomId;
+    if (this._roomId) {
+      this._alarm = false;
+      this._irrigation = false;
+    }
   }
 
   private setWallMode(mode: WallMode): void {
@@ -725,7 +733,7 @@ export class Floorplan3dPanel extends LitElement {
   }
 
   private view3d() {
-    return this.renderRoot.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; currentView(): StartView | null; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void; nowInput(): NowInput | null; showNow(target: NowTarget): void }) | null;
+    return this.renderRoot.querySelector("fp3d-view3d") as (HTMLElement & { resetView(): void; lookThrough(entityId: string): void; historyEntities(): HistorySpec; proHint(f: Feature): void; currentView(): StartView | null; roomSheets(roomId: string): { id: string; icon: string; title: string }[]; openRoomSheet(roomId: string, id: string): void; walkHere(): void; nowInput(): NowInput | null; showNow(target: NowTarget): void; focusPoint(floorId: string, x: number, z: number, y?: number): void }) | null;
   }
 
   /** Time travel on or off; without the Pro add-on its hint shows. `at`: a start moment from a link. */
@@ -1346,7 +1354,21 @@ export class Floorplan3dPanel extends LitElement {
           @walk-change=${(e: CustomEvent<{ walking: boolean }>) => (this._walking = e.detail.walking)}
           @alarm-toggle=${() => {
             this._alarm = !this._alarm;
+            if (this._alarm) {
+              this._irrigation = false;
+              this._roomId = null;
+              prefs.set("irrigation", "0");
+            }
             prefs.set("alarm", this._alarm ? "1" : "0");
+          }}
+          @irrigation-toggle=${() => {
+            this._irrigation = !this._irrigation;
+            if (this._irrigation) {
+              this._alarm = false;
+              this._roomId = null;
+              prefs.set("alarm", "0");
+            }
+            prefs.set("irrigation", this._irrigation ? "1" : "0");
           }}
           .pivotMark=${this._pinHover}
           .hass=${this.tt.hass(this.hass)}
@@ -1375,7 +1397,7 @@ export class Floorplan3dPanel extends LitElement {
           .director=${this._director}
           .voice=${this._voiceHere}
           .screen=${this._screen || null}
-          .panelOpen=${!!this._roomId}
+          .panelOpen=${!!this._roomId || this._alarm || this._irrigation}
           .floorId=${b.floors.length > 1 ? this._floorId : (b.floors[0]?.id ?? null)}
           .roomId=${this._roomId}
           .wallMode=${this._wallMode}
@@ -1472,6 +1494,30 @@ export class Floorplan3dPanel extends LitElement {
               }}
             ></fp3d-alarm-panel>`
           : nothing}
+        ${this._irrigation && !this._clean
+          ? html`<fp3d-irrigation-panel
+              .hass=${this.hass}
+              .building=${b}
+              .floorId=${b.floors.length > 1 ? this._floorId : (b.floors[0]?.id ?? null)}
+              @irrigation-close=${() => {
+                this._irrigation = false;
+                prefs.set("irrigation", "0");
+              }}
+              @emitter-patch=${(e: CustomEvent<{ id: string; floorId: string; patch: Record<string, unknown> }>) => {
+                const fl = b.floors.find((f) => f.id === e.detail.floorId);
+                const m = fl?.furniture.find((item) => item.id === e.detail.id);
+                if (m) Object.assign(m, e.detail.patch);
+                const pl = fl?.placements.find((item) => item.entity_id === e.detail.id);
+                if (pl) Object.assign(pl, e.detail.patch);
+                this.requestUpdate();
+                this.data.edit(b);
+              }}
+              @sprinkler-pick=${(e: CustomEvent<{ id: string; floorId: string; x: number; z: number }>) => {
+                if (e.detail.floorId && b.floors.length > 1) this._floorId = e.detail.floorId;
+                this.view3d()?.focusPoint(e.detail.floorId, e.detail.x, e.detail.z, 0.2);
+              }}
+            ></fp3d-irrigation-panel>`
+          : nothing}
         ${roomBar
           ? html`<fp3d-room-bar
               class="fp3d-room-bar"
@@ -1484,6 +1530,10 @@ export class Floorplan3dPanel extends LitElement {
                 // straight into the room, also from the house view or another floor
                 if (b.floors.length > 1) this._floorId = e.detail.floorId;
                 this._roomId = e.detail.roomId === this._roomId ? null : e.detail.roomId;
+                if (this._roomId) {
+                  this._alarm = false;
+                  this._irrigation = false;
+                }
               }}
             ></fp3d-room-bar>`
           : nothing}

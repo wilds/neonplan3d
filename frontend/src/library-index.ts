@@ -204,12 +204,19 @@ const BASIC: Record<string, [Kind, Room[]]> = {
   sensor_presence: ["tech", ["living", "office", "bedroom"]],
   sensor_contact: ["tech", ["hall", "living", "garden", "garage"]],
   siren: ["tech", ["garden", "garage", "hall"]],
+  irrigation_controller: ["tech", ["garden", "garage", "utility"]],
+  sprinkler_popup: ["outdoor", ["garden"]],
+  sprinkler_rotor: ["outdoor", ["garden"]],
+  sprinkler_drip: ["outdoor", ["garden"]],
+  drip_line: ["outdoor", ["garden"]],
+  irrigation_valve: ["tech", ["garden", "garage", "utility"]],
 };
 
 /** The built-in kinds the library offers (the pool devices stand in Pool Pro's tools, energy devices in the energy tool). */
 export function basicTypes(extra: string[] = []): string[] {
   const shown = new Set<string>(Object.values(FURNITURE_GROUPS).flat());
   for (const t of extra) shown.add(t);
+  for (const t of Object.keys(BASIC)) shown.add(t);
   return [...shown].filter((t) => t in BASIC);
 }
 

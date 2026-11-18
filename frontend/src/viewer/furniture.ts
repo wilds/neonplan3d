@@ -1450,6 +1450,69 @@ function poolValve(b: Builder, w: number, d: number, h: number): void {
   b.box(-w * 0.1, w * 0.45, y0 + h * 0.8, y0 + h, -d * 0.15, d * 0.15, C.accent, C.accent);
 }
 
+/** Irrigation controller (OpenSprinkler style): wall-mounted enclosure with backlit display, dial and buttons. */
+function irrigationController(b: Builder, w: number, d: number, h: number): void {
+  const y0 = 1.3;
+  b.box(-w / 2, w / 2, y0, y0 + h, -d / 2, d / 2, C.dark, C.body, EDGE_FURN);
+  b.box(-w * 0.46, w * 0.46, y0 + h * 0.04, y0 + h * 0.96, d / 2, d / 2 + 0.008, C.body, C.bodyTop, EDGE_FAINT);
+  // LCD screen
+  b.box(-w * 0.38, w * 0.08, y0 + h * 0.48, y0 + h * 0.85, d / 2 + 0.008, d / 2 + 0.014, C.glass, C.glass, EDGE_GLOW);
+  // Control dial & buttons
+  b.cyl(w * 0.26, d / 2 + 0.012, Math.min(w, h) * 0.12, y0 + h * 0.52, y0 + h * 0.74, C.dark, C.metal, 14, EDGE_FAINT);
+  b.box(w * 0.22, w * 0.3, y0 + h * 0.82, y0 + h * 0.88, d / 2 + 0.008, d / 2 + 0.014, C.white, C.white, EDGE_GLOW);
+  // Bottom wiring conduit gland
+  b.cyl(0, 0, Math.min(w, d) * 0.14, y0 - 0.05, y0, C.dark, C.dark, 10);
+}
+
+/** Pop-up sprinkler: ground canister with raised nozzle turret and spray slit. */
+function sprinklerPopup(b: Builder, w: number, d: number, h: number): void {
+  const r = Math.min(w, d) / 2;
+  b.cyl(0, 0, r, 0, h * 0.45, C.dark, C.dark, 16, EDGE_FURN);
+  b.cyl(0, 0, r * 0.68, h * 0.45, h * 0.88, C.dark, C.metal, 14);
+  b.cyl(0, 0, r * 0.52, h * 0.88, h, C.metal, C.body, 12, EDGE_GLOW);
+  b.box(-r * 0.2, r * 0.2, h * 0.82, h * 0.98, r * 0.22, r * 0.5, C.dark);
+}
+
+/** Rotor sprinkler: turret canister with oscillating nozzle stem and directional indicator. */
+function sprinklerRotor(b: Builder, w: number, d: number, h: number): void {
+  const r = Math.min(w, d) / 2;
+  b.cyl(0, 0, r, 0, h * 0.38, C.dark, C.dark, 16, EDGE_FURN);
+  b.cyl(0, 0, r * 0.78, h * 0.38, h * 0.8, C.dark, C.body, 16);
+  b.cyl(0, 0, r * 0.82, h * 0.8, h * 0.94, C.dark, C.metal, 16, EDGE_FAINT);
+  b.cyl(0, 0, r * 0.32, h * 0.94, h, C.metal, C.body, 10, EDGE_GLOW);
+  b.box(-r * 0.26, r * 0.26, h * 0.65, h * 0.85, r * 0.38, r * 0.76, C.dark);
+}
+
+/** Drip emitter: micro stake with emitter cap and drip barb. */
+function sprinklerDrip(b: Builder, w: number, d: number, h: number): void {
+  const r = Math.min(w, d) / 2;
+  b.box(-r * 0.25, r * 0.25, 0, h * 0.45, -r * 0.25, r * 0.25, C.dark);
+  b.cyl(0, 0, r * 0.8, h * 0.45, h * 0.85, C.dark, C.metal, 12, EDGE_FURN);
+  b.cyl(0, 0, r * 0.4, h * 0.85, h, C.metal, C.metal, 10, EDGE_GLOW);
+}
+
+/** Irrigation solenoid valve: valve body with top solenoid cylinder and bleed screw. */
+function irrigationValve(b: Builder, w: number, d: number, h: number): void {
+  b.box(-w / 2, w / 2, 0, h * 0.5, -d * 0.3, d * 0.3, C.dark, C.dark, EDGE_FURN);
+  b.cyl(0, 0, Math.min(w, d) * 0.28, h * 0.5, h, C.dark, C.metal, 12, EDGE_GLOW);
+  b.box(-w * 0.15, w * 0.15, h * 0.75, h * 0.85, -d * 0.15, d * 0.15, C.metal);
+}
+
+/** Drip line / tubo gocciolante: flexible PE hose with integrated emitters spaced at drip_pitch. */
+function dripLine(b: Builder, w: number, _d: number, _h: number, pitch = 0.33): void {
+  const p = Math.max(0.08, pitch);
+  const r = 0.012; // 24mm hose
+  // Hose along x
+  b.box(-w / 2, w / 2, 0, r * 2, -r, r, C.dark, C.body, EDGE_FAINT);
+  // Emitter collars at every hole
+  const count = Math.max(1, Math.floor(w / p));
+  const step = w / count;
+  for (let i = 0; i <= count; i++) {
+    const x = -w / 2 + i * step;
+    b.cyl(x, 0, r * 1.4, 0, r * 2.3, C.dark, C.metal, 10, EDGE_GLOW);
+  }
+}
+
 /** The grid connection at the edge of the plot: a small dark street cabinet with a glowing lid edge. */
 function gridCabinet(b: Builder, w: number, d: number, h: number): void {
   b.box(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.dark, C.body, EDGE_FURN);
@@ -1971,6 +2034,24 @@ function buildModel(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f: Fur
       break;
     case "pool_valve":
       poolValve(b, w, d, h);
+      return;
+    case "irrigation_controller":
+      irrigationController(b, w, d, h);
+      return;
+    case "sprinkler_popup":
+      sprinklerPopup(b, w, d, h);
+      break;
+    case "sprinkler_rotor":
+      sprinklerRotor(b, w, d, h);
+      break;
+    case "sprinkler_drip":
+      sprinklerDrip(b, w, d, h);
+      break;
+    case "drip_line":
+      dripLine(b, w, d, h, f.drip_pitch ?? 0.33);
+      break;
+    case "irrigation_valve":
+      irrigationValve(b, w, d, h);
       return;
     case "meter":
       meterCabinet(b, w, d, h);
