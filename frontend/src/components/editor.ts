@@ -7978,7 +7978,9 @@ export class Fp3dEditor extends LitElement {
           ? this.len(this.t("outdoor_height"), a.height ?? OUTDOOR_TOP[a.type], (v) => this.updateOutdoor({ height: Math.min(6, Math.max(0.1, round(v))) }), 0.05, 0.1)
           : a.type === "balcony"
             ? this.len(this.t("balcony_rail"), a.height ?? 1, (v) => this.updateOutdoor({ height: Math.min(2, Math.max(0.4, round(v))) }), 0.05, 0.4)
-            : nothing}
+            : a.type === "terrace" || a.type === "driveway"
+              ? this.len(this.t("outdoor_thickness"), a.thickness ?? OUTDOOR_TOP[a.type], (v) => this.updateOutdoor({ thickness: Math.abs(round(v) - OUTDOOR_TOP[a.type]) < 0.001 ? null : Math.min(20, Math.max(0.01, round(v))) }), 0.02, 0.01)
+              : nothing}
         ${this.len(this.t("outdoor_offset"), a.offset ?? 0, (v) => this.updateOutdoor({ offset: Math.min(10, Math.max(-10, round(v))) || null }), 0.05)}
         ${a.type !== "pool"
           ? html`${this.len(this.t("outdoor_slope"), a.slope ?? 0, (v) => this.updateOutdoor({ slope: Math.min(20, Math.max(0, round(v))) || null }), 0.05, 0)}

@@ -394,10 +394,14 @@ export function pushOutdoor(buf: GeoBuffer, lines: LineBuffer, floor: Floor, wat
       }
       default: {
         // a flat area is a thin prism; terrace, bed and hedge are raised blocks. A slope tilts the top,
-        // the block reaches down to the lowest point; patches marked "cut" inside it become holes
+        // the block reaches down to the lowest point; patches marked "cut" inside it become holes.
+        // Terrace and driveway may have an explicit thickness downwards.
         const topAt = (x: number, z: number) => groundAt(x, z) + look.top;
         const holes = outdoorHoles(areas, index);
-        pushPrism(buf, poly, lowest, a.slope ? topAt : g + look.top, look.side, look.color, { aoFrom: lowest, holes });
+        const isSlab = a.type === "terrace" || a.type === "driveway";
+        const thick = isSlab && a.thickness ? a.thickness : look.top;
+        const bottom = lowest - (thick - look.top);
+        pushPrism(buf, poly, bottom, a.slope ? topAt : g + look.top, look.side, look.color, { aoFrom: bottom, holes, bottom: isSlab });
         outline((x, z) => topAt(x, z) + 0.004);
         if (a.type === "hedge") outline((x, z) => groundAt(x, z) + 0.004);
         if (a.outline !== false) {

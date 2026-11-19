@@ -73,3 +73,43 @@ test("a sliding gate runs along the fence, beside the gap (#818)", () => {
   assert.ok(Math.max(...xs) <= 4.05 && Math.min(...xs) >= 1.95);
   assert.ok(xz(open).every(([, z]) => z > 0.02 && z < 0.15));
 });
+
+test("a terrace with thickness extends downwards by that thickness", () => {
+  const floor: Floor = {
+    ...newFloor("eg", "Garden", 0),
+    outdoor: [
+      { id: "t1", type: "terrace", points: [[0, 0], [4, 0], [4, 4], [0, 4]], thickness: 0.5 },
+    ],
+  };
+  const buf = new GeoBuffer();
+  const lines = new LineBuffer();
+  pushOutdoor(buf, lines, floor);
+  const ys: number[] = [];
+  for (let i = 1; i < buf.p.length; i += 3) ys.push(buf.p[i]);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  assert.ok(Math.abs(maxY - -0.08) < 1e-4);
+  assert.ok(Math.abs(minY - -0.58) < 1e-4);
+  assert.ok(Math.abs(maxY - minY - 0.5) < 1e-4);
+});
+
+test("a driveway with thickness extends downwards by that thickness", () => {
+  const floor: Floor = {
+    ...newFloor("eg", "Garden", 0),
+    outdoor: [
+      { id: "d1", type: "driveway", points: [[0, 0], [4, 0], [4, 4], [0, 4]], thickness: 0.2 },
+    ],
+  };
+  const buf = new GeoBuffer();
+  const lines = new LineBuffer();
+  pushOutdoor(buf, lines, floor);
+  const ys: number[] = [];
+  for (let i = 1; i < buf.p.length; i += 3) ys.push(buf.p[i]);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  // Default ground -0.2, OUTDOOR_TOP.driveway is 0.02 => top is -0.18
+  // With thickness 0.2 => bottom is -0.18 - 0.2 = -0.38
+  assert.ok(Math.abs(maxY - -0.18) < 1e-4);
+  assert.ok(Math.abs(minY - -0.38) < 1e-4);
+  assert.ok(Math.abs(maxY - minY - 0.2) < 1e-4);
+});

@@ -1239,6 +1239,7 @@
  "convert_to_room": "Converti in stanza",
  "convert_to_room_hint": "Converte quest'area esterna in una stanza e crea i muri attorno.",
  "outdoor_height": "Altezza (m)",
+ "outdoor_thickness": "Spessore (m)",
  "outdoor_offset": "Dislivello (m, − = più basso)",
  "outdoor_outline": "Mostra il contorno",
  "outdoor_outline_hint": "Senza spunta l'area non disegna una linea luminosa sul bordo: per grandi terreni fatti di più prati.",

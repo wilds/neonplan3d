@@ -1228,6 +1228,8 @@ export interface OutdoorArea {
   points: Vec2[];
   /** Hedges and fences: their height in m (null = 1.2 m / 1.0 m). */
   height?: number | null;
+  /** Terrace / driveway: slab thickness / height downwards from the surface in m (null = default). */
+  thickness?: number | null;
   /** False hides the neon outline (a plot of several lawns without lines crossing it). */
   outline?: boolean;
   /** Height offset in m: a driveway piece in front of a lower garage sits below the ground (negative), a raised terrace above. */
