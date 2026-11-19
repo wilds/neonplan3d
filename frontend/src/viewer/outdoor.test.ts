@@ -113,3 +113,54 @@ test("a driveway with thickness extends downwards by that thickness", () => {
   assert.ok(Math.abs(minY - -0.38) < 1e-4);
   assert.ok(Math.abs(maxY - minY - 0.2) < 1e-4);
 });
+
+test("a fence with a low wall (muretto) draws the wall under the fence and leaves gate gaps open", () => {
+  const fence: OutdoorArea = {
+    id: "f",
+    type: "fence",
+    points: [[0, 0], [10, 0], [10, 6], [0, 6]],
+    height: 1.2,
+    wall: true,
+    wall_height: 0.4,
+    gates: [{ id: "g1", edge: 0, at: 5, width: 2 }],
+  };
+  const floor: Floor = { ...newFloor("eg", "Garden", 0), outdoor: [fence] };
+  const buf = new GeoBuffer();
+  const lines = new LineBuffer();
+  pushOutdoor(buf, lines, floor);
+
+  // In the gap of the gate along edge 0 (x between 4 and 6, z ~ 0), no wall prism is drawn
+  const wallTrisInGap = [];
+  for (let i = 0; i < buf.p.length; i += 9) {
+    const xs = [buf.p[i], buf.p[i + 3], buf.p[i + 6]];
+    const ys = [buf.p[i + 1], buf.p[i + 4], buf.p[i + 7]];
+    const zs = [buf.p[i + 2], buf.p[i + 5], buf.p[i + 8]];
+    const midX = (xs[0] + xs[1] + xs[2]) / 3;
+    const midZ = (zs[0] + zs[1] + zs[2]) / 3;
+    // Inside the gate gap: x between 4.1 and 5.9, near z = 0
+    if (midX > 4.1 && midX < 5.9 && Math.abs(midZ) < 0.2) {
+      // Any triangle that belongs to the wall (up to ground -0.2 + 0.4 = 0.2)
+      if (Math.min(...ys) >= -0.21 && Math.max(...ys) <= 0.21) {
+        wallTrisInGap.push(midX);
+      }
+    }
+  }
+  // The gate gap has NO wall triangles across it
+  assert.equal(wallTrisInGap.length, 0);
+
+  // But outside the gap (e.g. x between 1 and 3, z ~ 0), the wall is present up to y = -0.2 + 0.4 = 0.2
+  const wallTrisOutside = [];
+  for (let i = 0; i < buf.p.length; i += 9) {
+    const xs = [buf.p[i], buf.p[i + 3], buf.p[i + 6]];
+    const ys = [buf.p[i + 1], buf.p[i + 4], buf.p[i + 7]];
+    const zs = [buf.p[i + 2], buf.p[i + 5], buf.p[i + 8]];
+    const midX = (xs[0] + xs[1] + xs[2]) / 3;
+    const midZ = (zs[0] + zs[1] + zs[2]) / 3;
+    if (midX > 1 && midX < 3 && Math.abs(midZ) < 0.2) {
+      if (Math.max(...ys) <= 0.21) {
+        wallTrisOutside.push(midX);
+      }
+    }
+  }
+  assert.ok(wallTrisOutside.length > 0);
+});

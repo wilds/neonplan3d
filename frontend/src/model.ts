@@ -1239,6 +1239,10 @@ export interface OutdoorArea {
   slope_dir?: SlopeDir;
   /** Fences and pergolas: the closing edge (last point back to the first) is left out, so a fence can lean against the house. */
   open?: boolean;
+  /** Fence: low wall (muretto) under the fence. */
+  wall?: boolean;
+  /** Fence: height of the low wall (muretto) in m (null = 0.4 m). */
+  wall_height?: number | null;
   /** Pergola: diagonal X-bracing on every side. */
   bracing?: boolean;
   /** Fences: gates cut into the edges (#818), each opening with its entity. */

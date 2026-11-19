@@ -282,13 +282,16 @@ export function pushOutdoor(buf: GeoBuffer, lines: LineBuffer, floor: Floor, wat
       }
       case "fence": {
         // posts every ~2 m and two rails along the outline, following the ground; the edges run as drawn (a
-        // gate names its edge that way), a gate leaves a gap with a post on either side (#818)
+        // gate names its edge that way), a gate leaves a gap with a post on either side (#818).
+        // With a wall (muretto) enabled, a solid base of wall_height runs under the fence.
         const pts = a.points;
         const last = pts.length - 1;
         const gates = gateSpans(a);
-        const post = (x: number, z: number, r: number) => {
-          const gy = groundAt(x, z);
-          pushPrism(buf, ccw([[x - r, z - r], [x + r, z - r], [x + r, z + r], [x - r, z + r]]), gy, gy + look.top, look.side, look.color);
+        const wallH = a.wall ? Math.min(look.top - 0.05, Math.max(0.05, a.wall_height ?? 0.4)) : 0;
+        const fenceH = look.top - wallH;
+        const post = (x: number, z: number, r: number, baseY = 0, topH = look.top) => {
+          const gy = groundAt(x, z) + baseY;
+          pushPrism(buf, ccw([[x - r, z - r], [x + r, z - r], [x + r, z + r], [x - r, z + r]]), gy, gy + topH, look.side, look.color);
         };
         for (let i = 0; i < pts.length; i++) {
           if (a.open && i === last) continue;
@@ -309,20 +312,30 @@ export function pushOutdoor(buf: GeoBuffer, lines: LineBuffer, floor: Floor, wat
           // an open fence also gets the post at its far end
           const farEnd = a.open && i === last - 1;
           for (const [u0, u1] of runs) {
+            const a0 = at(u0);
+            const a1 = at(u1);
+            if (wallH > 0) {
+              const gy0 = groundAt(a0[0], a0[1]);
+              const gy1 = groundAt(a1[0], a1[1]);
+              pushBeam(buf, a0, a1, 0.18, gy0, gy0 + wallH, look.side, look.color, gy1 - gy0);
+              if (a.outline !== false) {
+                lines.seg([a0[0], gy0 + wallH, a0[1]], [a1[0], gy1 + wallH, a1[1]], edge, ALWAYS);
+              }
+            }
             const n = Math.max(1, Math.round((u1 - u0) / 2));
             // a run's end at a gate has the gate's post; at the edge's end the next edge draws it
             const first = u0 > 1e-6 ? 1 : 0;
             const upTo = u1 >= len - 1e-6 && farEnd ? n : n - 1;
             for (let k = first; k <= upTo; k++) {
               const [x, z] = at(u0 + ((u1 - u0) * k) / n);
-              post(x, z, 0.04);
+              post(x, z, 0.04, wallH, fenceH);
             }
-            const a0 = at(u0);
-            const a1 = at(u1);
-            for (const y of [0.35, 0.85]) lines.seg([a0[0], groundAt(a0[0], a0[1]) + y * look.top, a0[1]], [a1[0], groundAt(a1[0], a1[1]) + y * look.top, a1[1]], edge, ALWAYS);
+            for (const y of [0.35, 0.85]) {
+              lines.seg([a0[0], groundAt(a0[0], a0[1]) + wallH + y * fenceH, a0[1]], [a1[0], groundAt(a1[0], a1[1]) + wallH + y * fenceH, a1[1]], edge, ALWAYS);
+            }
           }
-          // the gate posts are a little stronger
-          for (const g of gaps) for (const s of [g.s0, g.s1]) post(...at(s), 0.055);
+          // the gate posts are a little stronger and stand from the ground
+          for (const g of gaps) for (const s of [g.s0, g.s1]) post(...at(s), 0.055, 0, look.top);
         }
         break;
       }

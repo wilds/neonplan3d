@@ -7975,7 +7975,10 @@ export class Fp3dEditor extends LitElement {
             ${this.len(this.t("width"), b.x1 - b.x0, (v) => setRect("w", v), 0.01, 0.1)} ${this.len(this.t("depth"), b.z1 - b.z0, (v) => setRect("d", v), 0.01, 0.1)}`
           : nothing}
         ${outdoorStanding(a.type)
-          ? this.len(this.t("outdoor_height"), a.height ?? OUTDOOR_TOP[a.type], (v) => this.updateOutdoor({ height: Math.min(6, Math.max(0.1, round(v))) }), 0.05, 0.1)
+          ? this.len(this.t("outdoor_height"), a.height ?? OUTDOOR_TOP[a.type], (v) => {
+              const h = Math.min(6, Math.max(0.1, round(v)));
+              this.updateOutdoor({ height: h, ...(a.wall && a.wall_height && a.wall_height >= h ? { wall_height: Math.max(0.05, round(h - 0.1)) } : {}) });
+            }, 0.05, 0.1)
           : a.type === "balcony"
             ? this.len(this.t("balcony_rail"), a.height ?? 1, (v) => this.updateOutdoor({ height: Math.min(2, Math.max(0.4, round(v))) }), 0.05, 0.4)
             : a.type === "terrace" || a.type === "driveway"
@@ -8001,6 +8004,19 @@ export class Fp3dEditor extends LitElement {
               ><input type="checkbox" .checked=${!!a.open} ?disabled=${!admin} @change=${(ev: Event) => this.updateOutdoor({ open: (ev.target as HTMLInputElement).checked || undefined })} />
               ${this.t("outdoor_open")}</label
             >`
+          : nothing}
+        ${a.type === "fence"
+          ? html`<label class="fp3d-check fp3d-wide"
+              ><input type="checkbox" .checked=${!!a.wall} ?disabled=${!admin} @change=${(ev: Event) => {
+                const on = (ev.target as HTMLInputElement).checked;
+                const maxWall = Math.max(0.05, round((a.height ?? OUTDOOR_TOP.fence) - 0.1));
+                this.updateOutdoor({ wall: on || undefined, wall_height: on ? Math.min(maxWall, a.wall_height ?? 0.4) : undefined });
+              }} />
+              ${this.t("fence_wall")}</label
+            >
+            ${a.wall
+              ? this.len(this.t("fence_wall_height"), a.wall_height ?? 0.4, (v) => this.updateOutdoor({ wall_height: Math.min(Math.max(0.05, (a.height ?? OUTDOOR_TOP.fence) - 0.05), Math.max(0.05, round(v))) }), 0.05, 0.05)
+              : nothing}`
           : nothing}
         ${a.type === "fence" ? this.renderFenceGates(a) : nothing}
         ${a.type === "pergola"

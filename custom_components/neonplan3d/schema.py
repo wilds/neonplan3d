@@ -591,6 +591,9 @@ OUTDOOR_SCHEMA = vol.Schema(
         vol.Optional("slope_dir", default="x"): vol.In(["x", "-x", "z", "-z"]),
         # fences and pergolas: the closing edge is left out; pergola: X-bracing on the sides
         vol.Optional("open", default=False): bool,
+        # fence: low wall (muretto) under the fence
+        vol.Optional("wall", default=False): bool,
+        vol.Optional("wall_height", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0.05, max=5))),
         vol.Optional("bracing", default=False): bool,
         # fences: gates cut into the edges
         vol.Optional("gates"): vol.All([GATE_SCHEMA], vol.Length(max=20)),

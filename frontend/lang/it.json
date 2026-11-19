@@ -1256,6 +1256,8 @@
  "out_pergola": "Pergola / telaio",
  "out_balcony": "Balcone",
  "balcony_rail": "Altezza della ringhiera",
+ "fence_wall": "Muretto sotto la recinzione",
+ "fence_wall_height": "Altezza muretto (m)",
  "outdoor_open": "Aperto (senza l'ultimo lato)",
  "outdoor_open_hint": "Il lato dall'ultimo punto al primo non viene disegnato: una recinzione o una pergola appoggiata alla casa.",
  "outdoor_bracing": "Controventatura a X",
