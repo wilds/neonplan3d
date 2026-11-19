@@ -13,6 +13,7 @@ export interface WeatherState {
   fog: number;
   cloud: number;
   wind: number;
+  wind_bearing: number | null;
   lightning: boolean;
 }
 
@@ -71,7 +72,100 @@ export function isRainSource(hass: HomeAssistant, id: string): boolean {
   return dc === "precipitation_intensity" || /\/h$/.test(String(st.attributes.unit_of_measurement ?? ""));
 }
 
-export function weatherState(hass: HomeAssistant, entity: string | null, rainEntity?: string | null): WeatherState | null {
+/** Wind speed from a weather station (0 calm … 1 storm at 60 km/h), null when not telling a number. */
+export function stationWindSpeed(hass: HomeAssistant, entity: string | null | undefined): number | null {
+  const st = entity ? hass.states[entity] : undefined;
+  if (!st || st.state === "unavailable" || st.state === "unknown") return null;
+  const v = Number(st.state);
+  if (!Number.isFinite(v)) return null;
+  const unit = String(st.attributes.unit_of_measurement ?? "").toLowerCase().trim();
+  const kmh =
+    unit === "m/s"
+      ? v * 3.6
+      : unit === "mph"
+        ? v * 1.60934
+        : unit === "kn" || unit === "knot" || unit === "knots"
+          ? v * 1.852
+          : unit === "ft/s"
+            ? v * 1.09728
+            : unit === "bft" || unit === "beaufort"
+              ? 0.836 * Math.pow(v, 1.5) * 3.6
+              : v;
+  return Math.min(1, Math.max(0, kmh / 60));
+}
+
+const COMPASS_POINTS: Record<string, number> = {
+  n: 0,
+  nne: 22.5,
+  ne: 45,
+  ene: 67.5,
+  e: 90,
+  ese: 112.5,
+  se: 135,
+  sse: 157.5,
+  s: 180,
+  ssw: 202.5,
+  sw: 225,
+  wsw: 247.5,
+  w: 270,
+  wnw: 292.5,
+  nw: 315,
+  nnw: 337.5,
+};
+
+/** Parses wind bearing degrees (0..360) from numbers or compass points ("N", "SSW", etc.). */
+export function parseWindBearing(val: unknown): number | null {
+  if (val == null) return null;
+  if (typeof val === "number" && Number.isFinite(val)) {
+    return ((val % 360) + 360) % 360;
+  }
+  const str = String(val).trim().toLowerCase();
+  const num = Number(str);
+  if (Number.isFinite(num)) {
+    return ((num % 360) + 360) % 360;
+  }
+  if (str in COMPASS_POINTS) {
+    return COMPASS_POINTS[str];
+  }
+  return null;
+}
+
+/** Wind direction (0..360 degrees) from a weather station sensor. */
+export function stationWindBearing(hass: HomeAssistant, entity: string | null | undefined): number | null {
+  const st = entity ? hass.states[entity] : undefined;
+  if (!st || st.state === "unavailable" || st.state === "unknown") return null;
+  return parseWindBearing(st.state);
+}
+
+/** Entities that can tell wind speed: sensors with wind_speed device class, speed units, or name. */
+export function isWindSpeedSource(hass: HomeAssistant, id: string): boolean {
+  const st = hass.states[id];
+  if (!st || !id.startsWith("sensor.")) return false;
+  const dc = String(st.attributes.device_class ?? "");
+  if (dc === "wind_speed") return true;
+  const unit = String(st.attributes.unit_of_measurement ?? "").toLowerCase().trim();
+  if (["m/s", "km/h", "mph", "kn", "knot", "knots", "bft", "ft/s"].includes(unit)) return true;
+  return /(wind.*speed|wind_speed|windgeschwindigkeit|vitesse.*vent|velocit.*vento|velocidad.*viento)/i.test(id);
+}
+
+/** Entities that can tell wind direction: sensors with wind_direction device class, degree units, or name. */
+export function isWindBearingSource(hass: HomeAssistant, id: string): boolean {
+  const st = hass.states[id];
+  if (!st || !id.startsWith("sensor.")) return false;
+  const dc = String(st.attributes.device_class ?? "");
+  if (dc === "wind_direction") return true;
+  const unit = String(st.attributes.unit_of_measurement ?? "").trim();
+  if (unit === "°" || unit === "deg") return true;
+  return /(wind.*(bearing|dir)|wind_direction|windrichtung|direction.*vent|direzion.*vento|direcci.*viento)/i.test(id);
+}
+
+export function weatherState(
+  hass: HomeAssistant,
+  entity: string | null,
+  rainEntity?: string | null,
+  windSpeedEntity?: string | null,
+  windBearingEntity?: string | null,
+): WeatherState | null {
   const st = entity ? hass.states[entity] : undefined;
   if (!st || st.state === "unavailable" || st.state === "unknown") return null;
   const base = CONDITIONS[st.state];
@@ -84,9 +178,18 @@ export function weatherState(hass: HomeAssistant, entity: string | null, rainEnt
     const kmh = attrs.wind_speed_unit === "m/s" ? attrs.wind_speed * 3.6 : attrs.wind_speed_unit === "mph" ? attrs.wind_speed * 1.609 : attrs.wind_speed;
     wind = Math.max(wind, Math.min(1, kmh / 60));
   }
+  let windBearing: number | null = parseWindBearing(attrs.wind_bearing);
+
   // a weather station of one's own says whether it really rains at the house (D407)
   const station = stationRain(hass, rainEntity);
   if (station !== null && station > 0) cloud = Math.max(cloud, 0.85);
+
+  const speed = stationWindSpeed(hass, windSpeedEntity);
+  if (speed !== null) wind = speed;
+
+  const bearing = stationWindBearing(hass, windBearingEntity);
+  if (bearing !== null) windBearing = bearing;
+
   return {
     entity: st.entity_id,
     condition: st.state,
@@ -95,6 +198,7 @@ export function weatherState(hass: HomeAssistant, entity: string | null, rainEnt
     fog: base.fog ?? 0,
     cloud,
     wind,
+    wind_bearing: windBearing,
     lightning: !!base.lightning,
   };
 }

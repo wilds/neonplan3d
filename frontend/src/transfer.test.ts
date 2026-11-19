@@ -55,10 +55,10 @@ test("a shareable export leaves no entity anywhere, however new the field", () =
     color: "#ff00aa",
   };
   Object.assign(f.furniture[0], extra);
-  Object.assign(b.settings, { rain_entity: "binary_sensor.regen", outage_entity: "binary_sensor.netz" });
+  Object.assign(b.settings, { rain_entity: "binary_sensor.regen", wind_speed_entity: "sensor.wind_speed", wind_bearing_entity: "sensor.wind_direction", outage_entity: "binary_sensor.netz" });
   const out = exportFile(b, true).building;
   const text = JSON.stringify(out);
-  for (const id of ["lock.haustuer", "fan.decke", "sensor.gas", "light.decke", "binary_sensor.regen", "binary_sensor.netz", "abc123", "living_room"]) assert.ok(!text.includes(id), id);
+  for (const id of ["lock.haustuer", "fan.decke", "sensor.gas", "light.decke", "binary_sensor.regen", "sensor.wind_speed", "sensor.wind_direction", "binary_sensor.netz", "abc123", "living_room"]) assert.ok(!text.includes(id), id);
   const m = out.floors[0].furniture[0] as unknown as Record<string, unknown>;
   assert.deepEqual(m.sensors, []);
   assert.deepEqual(m.by_entity, {});

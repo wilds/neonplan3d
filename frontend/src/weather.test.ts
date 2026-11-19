@@ -66,3 +66,41 @@ test("a weather station's rain: sensor on/off, rain rate in mm/h or in/h (D407)"
   assert.ok(stationRain(hass({ "sensor.rate": { state: "0.2", attributes: { unit_of_measurement: "in/h" } } }), "sensor.rate")! > 0.5);
   assert.equal(stationRain(hass({}), "sensor.weg"), null);
 });
+
+test("a weather station's wind: speed and bearing from sensors or compass", async () => {
+  const { stationWindSpeed, stationWindBearing, parseWindBearing, isWindSpeedSource, isWindBearingSource } = await import("./weather.ts");
+  const hass = (states: Record<string, { state: string; attributes?: Record<string, unknown> }>) =>
+    ({ states: Object.fromEntries(Object.entries(states).map(([id, s]) => [id, { entity_id: id, state: s.state, attributes: s.attributes ?? {} }])) }) as never;
+
+  // speed
+  assert.equal(stationWindSpeed(hass({ "sensor.wind": { state: "30", attributes: { unit_of_measurement: "km/h" } } }), "sensor.wind"), 0.5);
+  assert.equal(stationWindSpeed(hass({ "sensor.wind_ms": { state: "10", attributes: { unit_of_measurement: "m/s" } } }), "sensor.wind_ms"), 0.6);
+  assert.equal(stationWindSpeed(hass({ "sensor.wind_max": { state: "60", attributes: { unit_of_measurement: "km/h" } } }), "sensor.wind_max"), 1);
+  assert.ok(Math.abs(stationWindSpeed(hass({ "sensor.wind_mph": { state: "37.28", attributes: { unit_of_measurement: "mph" } } }), "sensor.wind_mph")! - 1) < 1e-3);
+  assert.equal(stationWindSpeed(hass({ "sensor.wind_unavail": { state: "unavailable" } }), "sensor.wind_unavail"), null);
+
+  // bearing
+  assert.equal(parseWindBearing(180), 180);
+  assert.equal(parseWindBearing("270"), 270);
+  assert.equal(parseWindBearing("N"), 0);
+  assert.equal(parseWindBearing("SE"), 135);
+  assert.equal(parseWindBearing("wsw"), 247.5);
+  assert.equal(parseWindBearing("unknown"), null);
+  assert.equal(stationWindBearing(hass({ "sensor.dir": { state: "90", attributes: { unit_of_measurement: "°" } } }), "sensor.dir"), 90);
+  assert.equal(stationWindBearing(hass({ "sensor.dir": { state: "NW" } }), "sensor.dir"), 315);
+
+  // source detection
+  const h = hass({
+    "sensor.station_wind_speed": { state: "15", attributes: { device_class: "wind_speed" } },
+    "sensor.my_speed": { state: "15", attributes: { unit_of_measurement: "m/s" } },
+    "sensor.station_wind_dir": { state: "180", attributes: { device_class: "wind_direction" } },
+    "sensor.windrichtung": { state: "180", attributes: { unit_of_measurement: "°" } },
+    "sensor.temp": { state: "20", attributes: { device_class: "temperature" } },
+  });
+  assert.equal(isWindSpeedSource(h, "sensor.station_wind_speed"), true);
+  assert.equal(isWindSpeedSource(h, "sensor.my_speed"), true);
+  assert.equal(isWindSpeedSource(h, "sensor.temp"), false);
+  assert.equal(isWindBearingSource(h, "sensor.station_wind_dir"), true);
+  assert.equal(isWindBearingSource(h, "sensor.windrichtung"), true);
+  assert.equal(isWindBearingSource(h, "sensor.temp"), false);
+});

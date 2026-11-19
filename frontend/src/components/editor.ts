@@ -22,7 +22,7 @@ import { connectionsAt, laidPipe, nearestOnOutline, planConnection, poolNodeAt, 
 import { devicePorts, FILTER_VALVES, jointPortAt, jointPorts, nodePart, poolPortFlow, portFlow, splitNode, type PortName } from "../pool-ports.ts";
 import { holeInRoom } from "../geometry/holes.ts";
 import { turnedBackground } from "../geometry/background.ts";
-import { weatherEntity, isRainSource } from "../weather.ts";
+import { weatherEntity, isRainSource, isWindSpeedSource, isWindBearingSource } from "../weather.ts";
 import { isOutageSource } from "../outage.ts";
 import { SHOW_PRESENCE } from "../flags.ts";
 import { hasFeature, labOn, manualUrl, registerUrl, released, shopUrl, UNRELEASED } from "../features.ts";
@@ -16381,6 +16381,14 @@ export class Fp3dEditor extends LitElement {
         ${this.hass
           ? html`${this.entitySelect(this.t("rain_entity"), s.rain_entity ?? null, undefined, this.entityOptions((id) => isRainSource(this.hass!, id)), (v) => set({ rain_entity: v === "none" ? null : v }))}
               <p class="fp3d-sub fp3d-wide">${this.t("rain_entity_hint")}</p>`
+          : nothing}
+        ${this.hass
+          ? html`${this.entitySelect(this.t("wind_speed_entity"), s.wind_speed_entity ?? null, undefined, this.entityOptions((id) => isWindSpeedSource(this.hass!, id)), (v) => set({ wind_speed_entity: v === "none" ? null : v }))}
+              <p class="fp3d-sub fp3d-wide">${this.t("wind_speed_entity_hint")}</p>`
+          : nothing}
+        ${this.hass
+          ? html`${this.entitySelect(this.t("wind_bearing_entity"), s.wind_bearing_entity ?? null, undefined, this.entityOptions((id) => isWindBearingSource(this.hass!, id)), (v) => set({ wind_bearing_entity: v === "none" ? null : v }))}
+              <p class="fp3d-sub fp3d-wide">${this.t("wind_bearing_entity_hint")}</p>`
           : nothing}
         <label class="fp3d-check fp3d-wide" title=${this.t("alert_names_hint")}
           ><input type="checkbox" .checked=${s.alert_names !== false} @change=${(ev: Event) => set({ alert_names: (ev.target as HTMLInputElement).checked })} />

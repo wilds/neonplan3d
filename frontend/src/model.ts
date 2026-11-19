@@ -891,6 +891,10 @@ export interface BuildingSettings extends StylePlan {
   rain_warning?: boolean;
   /** Rain from a weather station of your own (a rain sensor or a rain rate) instead of the weather entity (D407). */
   rain_entity?: string | null;
+  /** Wind speed from a weather station of your own instead of the weather entity. */
+  wind_speed_entity?: string | null;
+  /** Wind direction from a weather station of your own instead of the weather entity. */
+  wind_bearing_entity?: string | null;
   /** Warnings name the device after the room (default on); off = only "Room · Smoke" when the warning has a room (#374). */
   alert_names?: boolean;
   /**

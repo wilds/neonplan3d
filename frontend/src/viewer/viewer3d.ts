@@ -311,6 +311,7 @@ export interface WeatherView {
   fog: number;
   cloud: number;
   wind: number;
+  wind_bearing?: number | null;
   sky: [number, number, number];
   /** Whether the sun or moon disc shows. */
   disc?: boolean;
@@ -2037,23 +2038,37 @@ export class FloorplanViewer {
     const b = this.weatherBox;
     const span = b.y1 - b.y0;
     const drift = w.wind * 2.5;
+    let driftX = drift;
+    let driftZ = 0;
+    if (w.wind_bearing != null) {
+      const north = (this.building?.settings.north ?? 0) * DEG;
+      const rad = (w.wind_bearing + 180) * DEG + north;
+      driftX = Math.sin(rad) * drift;
+      driftZ = -Math.cos(rad) * drift;
+    }
     if (this.rain.visible) {
       const a = this.rain.geometry.getAttribute("position") as Float32BufferAttribute;
       const p = a.array as Float32Array;
       const fall = (8 + 4 * w.rain) * dt;
       for (let i = 0; i < p.length; i += 6) {
         let y = p[i + 1] - fall;
-        let x = p[i] + drift * dt;
+        let x = p[i] + driftX * dt;
+        let z = p[i + 2] + driftZ * dt;
         if (y < b.y0) {
           y += span;
           x = b.x0 + Math.random() * (b.x1 - b.x0);
+          z = b.z0 + Math.random() * (b.z1 - b.z0);
         }
         if (x > b.x1) x -= b.x1 - b.x0;
+        else if (x < b.x0) x += b.x1 - b.x0;
+        if (z > b.z1) z -= b.z1 - b.z0;
+        else if (z < b.z0) z += b.z1 - b.z0;
         p[i] = x;
         p[i + 1] = y;
-        p[i + 3] = x - drift * 0.05;
+        p[i + 2] = z;
+        p[i + 3] = x - driftX * 0.05;
         p[i + 4] = y - 0.45;
-        p[i + 5] = p[i + 2];
+        p[i + 5] = z - driftZ * 0.05;
       }
       a.needsUpdate = true;
     }
@@ -2063,14 +2078,20 @@ export class FloorplanViewer {
       const t = now / 1000;
       for (let i = 0; i < p.length; i += 3) {
         let y = p[i + 1] - (0.9 + 0.6 * w.snow) * dt;
-        let x = p[i] + (drift + Math.sin(t + i) * 0.4) * dt;
+        let x = p[i] + (driftX + Math.sin(t + i) * 0.4) * dt;
+        let z = p[i + 2] + (driftZ + Math.cos(t + i) * 0.4) * dt;
         if (y < b.y0) {
           y += span;
           x = b.x0 + Math.random() * (b.x1 - b.x0);
+          z = b.z0 + Math.random() * (b.z1 - b.z0);
         }
         if (x > b.x1) x -= b.x1 - b.x0;
+        else if (x < b.x0) x += b.x1 - b.x0;
+        if (z > b.z1) z -= b.z1 - b.z0;
+        else if (z < b.z0) z += b.z1 - b.z0;
         p[i] = x;
         p[i + 1] = y;
+        p[i + 2] = z;
       }
       a.needsUpdate = true;
     }
@@ -2080,10 +2101,15 @@ export class FloorplanViewer {
       const p = a.array as Float32Array;
       const t = now / 1000;
       const creep = 0.12 + drift * 0.12;
+      const creepX = drift > 0 ? (driftX / drift) * creep : creep;
+      const creepZ = drift > 0 ? (driftZ / drift) * creep : 0;
       for (let i = 0; i < p.length; i += 3) {
-        let x = p[i] + creep * dt;
-        const z = p[i + 2] + Math.sin(t * 0.3 + i) * 0.05 * dt;
+        let x = p[i] + creepX * dt;
+        let z = p[i + 2] + creepZ * dt + Math.sin(t * 0.3 + i) * 0.05 * dt;
         if (x > b.x1 + 3) x = b.x0 - 3;
+        else if (x < b.x0 - 3) x = b.x1 + 3;
+        if (z > b.z1 + 3) z = b.z0 - 3;
+        else if (z < b.z0 - 3) z = b.z1 + 3;
         p[i] = x;
         p[i + 2] = z;
       }
@@ -2827,7 +2853,7 @@ export class FloorplanViewer {
     const now = new Date();
     const input = off
       ? null
-      : { sun: this.sun, north: b.settings.north ?? 0, cloud: w?.cloud ?? 0, wind: w?.wind ?? 0, mode: mode as "full" | "overlay", date: now };
+      : { sun: this.sun, north: b.settings.north ?? 0, cloud: w?.cloud ?? 0, wind: w?.wind ?? 0, wind_bearing: w?.wind_bearing, mode: mode as "full" | "overlay", date: now };
     // set again only when something changed (the minute keeps the stars turning and the moon's phase current)
     const key = input ? JSON.stringify({ ...input, date: Math.floor(now.getTime() / 60_000), q: this.lowQuality }) : "off";
     if (key === this.skyKey) return;

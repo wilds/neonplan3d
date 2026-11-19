@@ -962,6 +962,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("rain_warning", default=True): bool,
         # rain from an own weather station (a rain sensor or rain rate) instead of the weather entity
         vol.Optional("rain_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        vol.Optional("wind_speed_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        vol.Optional("wind_bearing_entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         # warnings name the device after the room
         vol.Optional("alert_names", default=True): bool,
         vol.Optional("alert_unavailable", default=False): bool,

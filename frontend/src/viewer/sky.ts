@@ -14,6 +14,8 @@ export interface SkyInput {
   /** Cloud cover 0…1 and wind 0…1 (only with the weather outside; otherwise 0). */
   cloud: number;
   wind: number;
+  /** Wind direction (degrees). */
+  wind_bearing?: number | null;
   /** "full": the sky paints its own colours (light and natural looks); "overlay": only stars, moon, glow and clouds over the look's own sky (neon). */
   mode: "full" | "overlay";
   date: Date;

@@ -1846,13 +1846,21 @@ export class Fp3dView3d extends LitElement {
     // the style follows the sun, the clock and the helper entity (setStyle ignores a style it already shows)
     v.setStyle(this.effectiveStyle());
     // the weather outside: clouds darken the sky, rain, snow and fog fall over the plot
-    const raw = this.weather && !this.dimmed && hasFeature("weather") ? weatherState(hass, weatherEntity(hass, this.weatherEntityId ?? b.settings.weather_entity), b.settings.rain_entity) : null;
+    const raw = this.weather && !this.dimmed && hasFeature("weather")
+      ? weatherState(
+          hass,
+          weatherEntity(hass, this.weatherEntityId ?? b.settings.weather_entity),
+          b.settings.rain_entity,
+          b.settings.wind_speed_entity,
+          b.settings.wind_bearing_entity,
+        )
+      : null;
     const weather = raw ? limitEffects(raw, b.settings.weather_effects) : null;
     this.cloud = weather?.cloud ?? 0;
     this._sky = (elevation === null ? 0 : Math.min(1, Math.max(0, (elevation + 4) / 16))) * (1 - 0.45 * this.cloud);
     // with the feature on, the viewer always gets the weather (the sun and moon disc shows on clear days too)
     const disc = weather ? weather.sky : (b.settings.weather_effects ?? ["sky"]).includes("sky");
-    v.setWeather(this.weather && !this.dimmed && hasFeature("weather") ? { ...(weather ?? { rain: 0, snow: 0, fog: 0, cloud: 0, wind: 0 }), sky: this.skyColor(), disc } : null);
+    v.setWeather(this.weather && !this.dimmed && hasFeature("weather") ? { ...(weather ?? { rain: 0, snow: 0, fog: 0, cloud: 0, wind: 0, wind_bearing: null }), sky: this.skyColor(), disc } : null);
     this.watchLightning(!!weather?.lightning);
     this.applyTint();
     const hasEnergy = summary.grid !== null || summary.solar !== null || summary.battery !== null || summary.tariff !== null;
