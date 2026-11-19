@@ -47,8 +47,18 @@ test("finishes: a lamp's glowing parts bring no row, its body does", () => {
 
 test("finishes: built-in worktops take the wood finish, and every role has swatches", () => {
   assert.deepEqual(finishRolesOf("worktop", null), ["wood"]);
-  assert.deepEqual(finishRolesOf("kitchen", null), ["wood"]);
-  assert.deepEqual(finishRolesOf("island", null), ["wood"]);
+  assert.deepEqual(finishRolesOf("kitchen", null), ["wood", "front", "body"]);
+  assert.deepEqual(finishRolesOf("island", null), ["wood", "front", "body"]);
+  assert.deepEqual(finishRolesOf("wardrobe", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("tall_cabinet", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("kitchen_wall", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("kitchen_tall", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("nightstand", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("sideboard", null), ["wood", "front", "body"]);
+  assert.deepEqual(finishRolesOf("dresser", null), ["wood", "front", "body"]);
+  assert.deepEqual(finishRolesOf("stove", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("fridge", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("fridge_smart", null), ["front", "body"]);
   for (const role of FINISH_ROLES) assert.ok(FINISH_SWATCHES[role].length > 0 && FINISH_SWATCHES[role].every((s) => /^#[0-9a-f]{6}$/.test(s.hex)));
   assert.equal(finishTargetOf("body"), "white");
   assert.equal(finishTargetOf("front"), "front");

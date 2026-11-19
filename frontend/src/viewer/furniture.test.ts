@@ -550,3 +550,25 @@ test("a built-in worktop takes the wood finish, without one it stays as it was (
   }
   assert.deepEqual(draw("worktop", { wood: "#6b4a32" }), draw("worktop", null));
 });
+
+test("built-in furniture with doors takes front and body finishes", async () => {
+  const { setNaturalPalette } = await import("./palette.ts");
+  const draw = (type: string, finish: Furniture["finish"]) => {
+    const buf = new GeoBuffer();
+    pushFurniture(buf, new LineBuffer(), new GeoBuffer(), { id: "w", type, x: 0, z: 0, rotation: 0, w: 1.2, d: 0.6, h: 0.9, variant: null, finish } as Furniture);
+    return buf.c;
+  };
+  setNaturalPalette(true);
+  try {
+    for (const type of ["wardrobe", "tall_cabinet", "kitchen_wall", "kitchen_tall", "nightstand", "kitchen", "sideboard", "dresser", "stove", "fridge"]) {
+      // front finish changes the drawn colors
+      assert.notDeepEqual(draw(type, { front: "#9fae96" }), draw(type, null), `${type} with front finish`);
+      // carcass finish changes the drawn colors
+      assert.notDeepEqual(draw(type, { body: "#34363a" }), draw(type, null), `${type} with body finish`);
+      // separate front and carcass finishes differ from front alone
+      assert.notDeepEqual(draw(type, { front: "#9fae96", body: "#34363a" }), draw(type, { front: "#9fae96" }), `${type} with front and body`);
+    }
+  } finally {
+    setNaturalPalette(false);
+  }
+});

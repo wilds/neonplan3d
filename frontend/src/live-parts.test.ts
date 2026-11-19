@@ -49,7 +49,8 @@ test("live parts are grouped by slot and kind; one slot takes the item's own ent
 
 test("finishes: the roles a built-in or a pack item is drawn with, and a placed item's colour", () => {
   assert.deepEqual(finishRolesOf("sofa", null), ["fabric", "wood"]);
-  assert.deepEqual(finishRolesOf("fridge", null), []);
+  assert.deepEqual(finishRolesOf("fridge", null), ["front", "body"]);
+  assert.deepEqual(finishRolesOf("siren", null), []);
   const item = { id: "x", name: { en: "x" }, size: [1, 1, 1], parts: [{ color: "wood" }, { color: "cushion", top: "white" }] } as unknown as PackItem;
   assert.deepEqual(finishRolesOf("pack:p:x", item), ["wood", "fabric", "front"]);
   assert.equal(finishHex({ finish: { wood: "#6b4a32" } }, "wood"), "#6b4a32");

@@ -60,7 +60,7 @@ function finishColors(f: Pick<Furniture, "finish">): Partial<Record<keyof typeof
   if (wood !== null) Object.assign(out, { wood, woodTop: shade(wood, 1.12).getHex() });
   if (fabric !== null) Object.assign(out, { fabric, fabricTop: shade(fabric, 1.12).getHex(), cushion: shade(fabric, 1.28).getHex() });
   if (front !== null) Object.assign(out, { front, frontTop: shade(front, 1.05).getHex() });
-  if (white !== null) Object.assign(out, { white, whiteTop: shade(white, 1.05).getHex() });
+  if (white !== null) Object.assign(out, { white, whiteTop: shade(white, 1.05).getHex(), body: white, bodyTop: shade(white, 1.05).getHex() });
   return Object.keys(out).length ? out : null;
 }
 
@@ -409,7 +409,8 @@ function desk(b: Builder, w: number, d: number, h: number): void {
 function cabinet(b: Builder, w: number, d: number, h: number, doors: number, handleY: number | null = null, horizontal = false): void {
   b.box(-w / 2, w / 2, 0.02, h, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
   b.box(-w / 2 + 0.02, w / 2 - 0.02, 0, 0.08, -d / 2 + 0.02, d / 2 - 0.06, C.dark);
-  fronts(b, -w / 2, w / 2, 0.08, h, d / 2 - 0.02, doors, handleY, horizontal);
+  b.box(-w / 2, w / 2, 0.08, h, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
+  fronts(b, -w / 2, w / 2, 0.08, h, d / 2, doors, handleY, horizontal);
 }
 
 function shelf(b: Builder, w: number, d: number, h: number): void {
@@ -448,7 +449,9 @@ function worktop(): number {
 }
 
 function fridge(b: Builder, w: number, d: number, h: number): void {
-  b.box(-w / 2, w / 2, 0, h, -d / 2, d / 2, C.white, C.whiteTop, EDGE_FURN);
+  b.box(-w / 2, w / 2, 0.02, h, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
+  b.box(-w / 2 + 0.02, w / 2 - 0.02, 0, 0.02, -d / 2 + 0.02, d / 2 - 0.06, C.dark);
+  b.box(-w / 2, w / 2, 0.02, h, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
   const split = h * 0.62;
   b.seg(-w / 2, split, d / 2, w / 2, split, d / 2, EDGE_FAINT);
   const hx = w / 2 - 0.06;
@@ -894,13 +897,19 @@ export function pushAwning(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" | "rotat
   if (reach > 0.05) valance(end[1], end[0]);
 }
 
-export function pushFridgeDoors(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror">, base: number, left: number, right: number): void {
-  const p0 = buf.p.length;
-  pushFridgeDoorsUnflipped(buf, f, base, left, right);
-  if (f.mirror) flipWinding(buf, p0);
+export function pushFridgeDoors(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror" | "finish">, base: number, left: number, right: number): void {
+  const before = finish;
+  finish = finishColors(f);
+  try {
+    const p0 = buf.p.length;
+    pushFridgeDoorsUnflipped(buf, f, base, left, right);
+    if (f.mirror) flipWinding(buf, p0);
+  } finally {
+    finish = before;
+  }
 }
 
-function pushFridgeDoorsUnflipped(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror">, base: number, left: number, right: number): void {
+function pushFridgeDoorsUnflipped(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" | "rotation" | "w" | "d" | "h" | "mirror" | "finish">, base: number, left: number, right: number): void {
   const a = f.rotation * DEG;
   const c = Math.cos(a);
   const s = Math.sin(a);
@@ -915,7 +924,7 @@ function pushFridgeDoorsUnflipped(buf: GeoBuffer, f: Pick<Furniture, "x" | "z" |
   // a door: u runs from the hinge along the door (positive to the right), v through its thickness (0 = front face)
   const door = (hx: number, sign: 1 | -1, angle: number) => {
     const open = angle / opening;
-    const front = new Color(0x1f2d4c).lerp(red, open);
+    const front = new Color(naturalPalette() ? C.front : 0x1f2d4c).lerp(red, open);
     const side = new Color(C.body).lerp(red, open * 0.8);
     const ca = Math.cos(angle);
     const sa = Math.sin(angle);
@@ -1143,15 +1152,25 @@ function stairsU(b: Builder, w: number, d: number, h: number): void {
 
 function sideboard(b: Builder, w: number, d: number, h: number): void {
   legs(b, w, d, 0.12, 0.03, 0.04, C.metal);
-  b.box(-w / 2, w / 2, 0.12, h, -d / 2, d / 2 - 0.02, C.wood, C.woodTop, EDGE_FURN);
-  fronts(b, -w / 2, w / 2, 0.12, h, d / 2 - 0.02, Math.max(2, Math.round(w / 0.45)), h - 0.1, true);
+  const bodyColor = finish?.body ?? (finish?.wood ?? (naturalPalette() ? C.wood : C.body));
+  const bodyTop = finish?.bodyTop ?? (finish?.woodTop ?? (naturalPalette() ? C.woodTop : C.bodyTop));
+  const frontColor = finish?.front ?? bodyColor;
+  const frontTop = finish?.frontTop ?? bodyTop;
+  b.box(-w / 2, w / 2, 0.12, h, -d / 2, d / 2 - 0.02, bodyColor, bodyTop, EDGE_FURN);
+  b.box(-w / 2, w / 2, 0.12, h, d / 2 - 0.02, d / 2, frontColor, frontTop, EDGE_FURN);
+  fronts(b, -w / 2, w / 2, 0.12, h, d / 2, Math.max(2, Math.round(w / 0.45)), h - 0.1, true);
 }
 
 function dresser(b: Builder, w: number, d: number, h: number): void {
-  b.box(-w / 2, w / 2, 0.06, h, -d / 2, d / 2 - 0.02, C.wood, C.woodTop, EDGE_FURN);
+  const bodyColor = finish?.body ?? (finish?.wood ?? (naturalPalette() ? C.wood : C.body));
+  const bodyTop = finish?.bodyTop ?? (finish?.woodTop ?? (naturalPalette() ? C.woodTop : C.bodyTop));
+  const frontColor = finish?.front ?? bodyColor;
+  const frontTop = finish?.frontTop ?? bodyTop;
+  b.box(-w / 2, w / 2, 0.06, h, -d / 2, d / 2 - 0.02, bodyColor, bodyTop, EDGE_FURN);
   b.box(-w / 2 + 0.02, w / 2 - 0.02, 0, 0.06, -d / 2 + 0.02, d / 2 - 0.06, C.dark);
+  b.box(-w / 2, w / 2, 0.06, h, d / 2 - 0.02, d / 2, frontColor, frontTop, EDGE_FURN);
   const n = Math.max(3, Math.round((h - 0.06) / 0.22));
-  const z = d / 2 - 0.02;
+  const z = d / 2;
   for (let i = 1; i < n; i++) {
     const y = 0.06 + ((h - 0.06) / n) * i;
     b.seg(-w / 2, y, z, w / 2, y, z, EDGE_FAINT);
@@ -1221,15 +1240,20 @@ function kitchenWall(b: Builder, w: number, d: number, h: number): void {
   // hangs above the worktop
   const y0 = 1.45;
   b.box(-w / 2, w / 2, y0, y0 + h, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
-  fronts(b, -w / 2, w / 2, y0, y0 + h, d / 2 - 0.02, Math.max(1, Math.round(w / 0.5)), y0 + 0.08);
+  b.box(-w / 2, w / 2, y0, y0 + h, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
+  fronts(b, -w / 2, w / 2, y0, y0 + h, d / 2, Math.max(1, Math.round(w / 0.5)), y0 + 0.08);
 }
 
 function kitchenTall(b: Builder, w: number, d: number, h: number): void {
   b.box(-w / 2, w / 2, 0.02, h, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
   b.box(-w / 2 + 0.02, w / 2 - 0.02, 0, 0.08, -d / 2 + 0.02, d / 2 - 0.06, C.dark);
-  const z = d / 2 - 0.02;
+  // front panel below oven: 0.08 to 0.85
+  b.box(-w / 2, w / 2, 0.08, 0.85, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
+  // front panel above oven: 1.45 to h
+  b.box(-w / 2, w / 2, 1.45, h, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
+  const z = d / 2;
   // oven with a dark glass door and a glowing handle, fronts above and below
-  b.box(-w / 2 + 0.03, w / 2 - 0.03, 0.85, 1.45, z, z + 0.01, C.dark, C.dark, EDGE_GLOW);
+  b.box(-w / 2 + 0.03, w / 2 - 0.03, 0.85, 1.45, z - 0.02, z + 0.01, C.dark, C.dark, EDGE_GLOW);
   b.seg(-w / 2 + 0.08, 1.4, z + 0.02, w / 2 - 0.08, 1.4, z + 0.02, EDGE_GLOW);
   for (const y of [0.85, 1.45]) b.seg(-w / 2, y, z, w / 2, y, z, EDGE_FAINT);
   b.seg(w / 2 - 0.06, 0.5, z + 0.012, w / 2 - 0.06, 0.7, z + 0.012, EDGE_GLOW);
@@ -1238,8 +1262,9 @@ function kitchenTall(b: Builder, w: number, d: number, h: number): void {
 
 function island(b: Builder, w: number, d: number, h: number): void {
   const inner = d - 0.3;
-  b.box(-w / 2 + 0.05, w / 2 - 0.05, 0.08, h - 0.04, -d / 2 + 0.02, -d / 2 + inner, C.body, C.bodyTop, EDGE_FURN);
+  b.box(-w / 2 + 0.05, w / 2 - 0.05, 0.08, h - 0.04, -d / 2 + 0.02, -d / 2 + inner - 0.02, C.body, C.bodyTop, EDGE_FURN);
   b.box(-w / 2 + 0.07, w / 2 - 0.07, 0, 0.08, -d / 2 + 0.04, -d / 2 + inner - 0.04, C.dark);
+  b.box(-w / 2 + 0.05, w / 2 - 0.05, 0.08, h - 0.04, -d / 2 + inner - 0.02, -d / 2 + inner, C.front, C.frontTop, EDGE_FURN);
   fronts(b, -w / 2 + 0.05, w / 2 - 0.05, 0.08, h - 0.04, -d / 2 + inner, Math.max(2, Math.round(w / 0.6)), h - 0.2);
   // worktop overhangs on the front for bar stools
   b.box(-w / 2, w / 2, h - 0.04, h, -d / 2, d / 2, worktop(), worktop(), EDGE_FURN);
@@ -1248,7 +1273,8 @@ function island(b: Builder, w: number, d: number, h: number): void {
 function dishwasher(b: Builder, w: number, d: number, h: number): void {
   b.box(-w / 2, w / 2, 0.02, h - 0.04, -d / 2, d / 2 - 0.02, C.body, C.bodyTop, EDGE_FURN);
   b.box(-w / 2 + 0.02, w / 2 - 0.02, 0, 0.08, -d / 2 + 0.02, d / 2 - 0.06, C.dark);
-  b.seg(-w / 2 + 0.08, h - 0.12, d / 2 - 0.008, w / 2 - 0.08, h - 0.12, d / 2 - 0.008, EDGE_GLOW);
+  b.box(-w / 2, w / 2, 0.08, h - 0.04, d / 2 - 0.02, d / 2, C.front, C.frontTop, EDGE_FURN);
+  b.seg(-w / 2 + 0.08, h - 0.12, d / 2 + 0.012, w / 2 - 0.08, h - 0.12, d / 2 + 0.012, EDGE_GLOW);
   b.box(-w / 2, w / 2, h - 0.04, h, -d / 2, d / 2, C.whiteTop, C.whiteTop, EDGE_FURN);
 }
 
@@ -1814,7 +1840,7 @@ function buildModel(buf: GeoBuffer, lines: LineBuffer, shadow: GeoBuffer, f: Fur
       break;
     case "nightstand":
       cabinet(b, w, d, h, 1, h * 0.72, true);
-      b.seg(-w / 2, h * 0.5, d / 2 - 0.02, w / 2, h * 0.5, d / 2 - 0.02, EDGE_FAINT);
+      b.seg(-w / 2, h * 0.5, d / 2, w / 2, h * 0.5, d / 2, EDGE_FAINT);
       break;
     case "wardrobe":
       cabinet(b, w, d, h, Math.max(2, Math.round(w / 0.5)), h * 0.5);
