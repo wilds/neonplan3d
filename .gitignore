@@ -15,3 +15,8 @@ private/
 frontend/_*.mjs
 frontend/_*.mts
 frontend/_*.ts
+
+# built frontend bundles and copied assets
+custom_components/neonplan3d/frontend/*
+!custom_components/neonplan3d/frontend/fonts/
+site/import/neonplan-import.js
