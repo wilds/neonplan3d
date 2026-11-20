@@ -11782,6 +11782,8 @@ export class Fp3dEditor extends LitElement {
         symbol = svg`${paneLines}${
           style === "passage"
             ? svg`<line class="fp3d-open-passage" x1=${q(p0, mid)[0]} y1=${q(p0, mid)[1]} x2=${q(p1, mid)[0]} y2=${q(p1, mid)[1]} />`
+            : style === "pocket"
+            ? svg`<line class="fp3d-open-pocket" x1=${q(l0, mid)[0]} y1=${q(l0, mid)[1]} x2=${q(l1, mid)[0]} y2=${q(l1, mid)[1]} />`
             : style === "sliding"
             ? svg`<line x1=${q(l0, face)[0]} y1=${q(l0, face)[1]} x2=${q(l1, face)[0]} y2=${q(l1, face)[1]} />`
             : two
@@ -12845,8 +12847,15 @@ export class Fp3dEditor extends LitElement {
                 ? nothing
                 : html`<label class="fp3d-field fp3d-wide"
                     >${this.t("blind_side")}
-                    <select ?disabled=${!admin} @change=${(e: Event) => this.updateOpening({ blind_side: (e.target as HTMLSelectElement).value === "inside" ? "inside" : null })}>
-                      <option value="outside" ?selected=${o.blind_side !== "inside"}>${this.t("blind_side_outside")}</option>
+                    <select
+                      ?disabled=${!admin}
+                      @change=${(e: Event) => {
+                        const v = (e.target as HTMLSelectElement).value;
+                        this.updateOpening({ blind_side: v === "inside" ? "inside" : v === "recessed" ? "recessed" : null });
+                      }}
+                    >
+                      <option value="outside" ?selected=${!o.blind_side || o.blind_side === "outside"}>${this.t("blind_side_outside")}</option>
+                      <option value="recessed" ?selected=${o.blind_side === "recessed"}>${this.t("blind_side_recessed")}</option>
                       <option value="inside" ?selected=${o.blind_side === "inside"}>${this.t("blind_side_inside")}</option>
                     </select></label
                   >`}

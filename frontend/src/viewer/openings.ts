@@ -316,21 +316,23 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       const ownAngle = info.opening.open_angle;
       for (const [atStart, openness] of leaves) {
         const open = Math.min(1, Math.max(0, openness));
+        const isSliding = style === "sliding" || style === "pocket";
+        const isPocket = style === "pocket";
         const theta =
-          style === "sliding"
+          isSliding
             ? 0
             : ownAngle != null && ownAngle > 0
               ? (st.sensed ? open : Math.min(1, open / SENSORLESS_OPEN)) * Math.min(170, ownAngle) * (Math.PI / 180)
               : open * DOOR_ANGLE;
-        // a sliding leaf runs along the wall face past the hinge side instead of turning
-        const slide = style === "sliding" ? open * lw : 0;
+        // a sliding leaf runs along the wall face past the hinge side instead of turning (or inside wall pocket)
+        const slide = isSliding ? open * lw : 0;
         const leafTf: Tf = (u, n, y) => {
           const along = u * Math.cos(theta) - n * Math.sin(theta) - slide;
-          const nn = face + s * (n * Math.cos(theta) + u * Math.sin(theta) + (slide ? 0.05 : 0));
+          const nn = isPocket ? mid + (n + thick / 2) : face + s * (n * Math.cos(theta) + u * Math.sin(theta) + (slide ? 0.05 : 0));
           return tf(atStart ? x0 + along : x1 - along, nn, y);
         };
-        // an open leaf leaves its wall: keep it visible when the wall folds away
-        const leafBucket = open > 0.05 ? ALWAYS : bucket;
+        // an open leaf leaves its wall: keep it visible when the wall folds away; a pocket leaf stays inside the wall
+        const leafBucket = isPocket ? bucket : open > 0.05 ? ALWAYS : bucket;
         const warm = markClosed ? !!st.sensed && open < 0.05 : open > 0.9;
         const leafC = warm ? shade(OPEN_WARM, 0.7) : new Color(front ? OP.LEAF_FRONT : OP.LEAF);
         const leafTop = warm ? shade(OPEN_WARM, 0.9) : new Color(front ? OP.LEAF_FRONT_TOP : OP.LEAF_TOP);
@@ -349,13 +351,15 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
           if (style === "front_glass") panel(glass, leafTf, 0.12, lw - 0.12, n, T * 0.55, T - 0.18, OP.GLASS, cut, leafBucket);
           else if (front) panel(glass, leafTf, 0.1, 0.18, n, 0.3, T - 0.3, OP.GLASS, cut, leafBucket);
         }
-        // handle on both sides: a knob on a room door, a bar on a front door
+        // handle on both sides: a knob on a room door, a bar on a front door; flush pull on pocket door
         const hy = Math.min(1.05, T * 0.5);
         const hh = front ? 0.3 : 0.012;
         const hx0 = front ? lw - 0.11 : lw - 0.16;
         const hx1 = front ? lw - 0.08 : lw - 0.05;
-        splitBox(frames, leafTf, hx0, hx1, 0.004, 0.05, hy - hh, hy + hh, new Color(OP.HANDLE), new Color(OP.HANDLE_TOP), cut, leafBucket);
-        splitBox(frames, leafTf, hx0, hx1, -thick - 0.05, -thick - 0.004, hy - hh, hy + hh, new Color(OP.HANDLE), new Color(OP.HANDLE_TOP), cut, leafBucket);
+        const han0 = isPocket ? 0.001 : 0.004;
+        const han1 = isPocket ? 0.004 : 0.05;
+        splitBox(frames, leafTf, hx0, hx1, han0, han1, hy - hh, hy + hh, new Color(OP.HANDLE), new Color(OP.HANDLE_TOP), cut, leafBucket);
+        splitBox(frames, leafTf, hx0, hx1, -thick - han1, -thick - han0, hy - hh, hy + hh, new Color(OP.HANDLE), new Color(OP.HANDLE_TOP), cut, leafBucket);
         // an unlocked smart lock: a soft accent strip along the leaf's free edge, on both faces (#682)
         if (st.unlocked && atStart === info.hingeAtStart) splitBox(frames, leafTf, lw - 0.022, lw + 0.004, -thick - 0.006, 0.006, 0.03, T - 0.03, shade(UNLOCKED, 0.85), shade(UNLOCKED, 1), cut, leafBucket);
       }
@@ -526,14 +530,19 @@ export function buildOpeningParts(infos: readonly OpeningInfo[], states: Readonl
       }
     } else if (st.cover !== null) {
       const out = -info.faceOut;
-      const boxTop = T + 0.2;
-      splitBox(frames, tf, -0.05, W + 0.05, out - 0.15, out, T, boxTop, new Color(OP.BLIND_BOX), frameTop, cut, bucket);
+      const recessed = info.opening.blind_side === "recessed";
+      if (!recessed) {
+        const boxTop = T + 0.2;
+        splitBox(frames, tf, -0.05, W + 0.05, out - 0.15, out, T, boxTop, new Color(OP.BLIND_BOX), frameTop, cut, bucket);
+      }
       const closed = Math.min(1, Math.max(0, st.cover));
       if (closed > 0.01) {
         const bottom = T - closed * (T - S);
+        const frameOut = mid - 0.04;
+        const blindN = recessed ? Math.min(frameOut - 0.015, Math.max(out + 0.015, (out + frameOut) / 2)) : out - 0.07;
         // a venetian blind shows its slats while they stand open; shut it looks like the roller shutter
-        if (typeof st.slats === "number" && st.slats > 0.04) slatStrips(blinds, tf, 0, W, out - 0.07, bottom, T, st.slats, new Color(0xffffff), cut, bucket);
-        else panel(blinds, tf, 0, W, out - 0.07, bottom, T, new Color(0xffffff), cut, bucket, 0.045);
+        if (typeof st.slats === "number" && st.slats > 0.04) slatStrips(blinds, tf, 0, W, blindN, bottom, T, st.slats, new Color(0xffffff), cut, bucket);
+        else panel(blinds, tf, 0, W, blindN, bottom, T, new Color(0xffffff), cut, bucket, 0.045);
       }
     }
     frameTris.push({ id: info.opening.id, start: fStart, end: frames.count });

@@ -135,8 +135,8 @@ export interface Opening {
   position?: string | null;
   /** The position sensor counts the other way round (0 = open). */
   position_inverted?: boolean;
-  /** Where the blind sits: outside as a roller shutter (null, the default) or inside the room as a roller shade. */
-  blind_side?: "inside" | "outside" | null;
+  /** Where the blind sits: outside as a roller shutter (null, the default), inside the room as a roller shade, or recessed into the wall. */
+  blind_side?: "inside" | "outside" | "recessed" | null;
   /** The blind's slats report their tilt the other way round (0 = open): turned in 3D and in the sliders. */
   slat_invert?: boolean | null;
   /** Windows: a sensor with the sash's tilt angle (degrees); the sash tilts in 3D as far as it reports. */
@@ -2104,7 +2104,7 @@ export const OPENING_DEFAULTS = {
 
 /** Kinds of openings offered when placing one; a terrace door is a window down to the floor. */
 /** Door looks: room doors, front doors (with glass, one or two sidelights), a glass door, a sliding door. */
-export const DOOR_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "passage"] as const;
+export const DOOR_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "pocket", "passage"] as const;
 /** "glass_wall": fixed floor-to-ceiling glazing without sashes, slim mullions (an indoor glass wall, #163). */
 /** "slide": a lift-and-slide door or sliding window – one pane fixed, the other slides in front of it (#397, #361). */
 export const WINDOW_STYLES = ["standard", "bars", "glass_wall", "slide"] as const;

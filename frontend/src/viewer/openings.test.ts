@@ -187,3 +187,67 @@ test("a garage door is the door only: no roller shutter or shutter box in front 
   const w = info("w", 1, 1.2, 0.9, 2.2, { cover: "cover.w" });
   assert.ok(Math.max(...ys(buildOpeningParts([w], new Map([["w", { open: 0, tilt: 0, cover: 1 }]]), 99))) > 2.3);
 });
+
+test("a recessed roller shutter hangs inside the wall reveal with no box protruding from the facade", () => {
+  const wNormal = info("wn", 1, 1.2, 0.9, 2.2, { cover: "cover.wn" });
+  const wRecessed = info("wr", 1, 1.2, 0.9, 2.2, { cover: "cover.wr", blind_side: "recessed" });
+
+  const pNormal = buildOpeningParts([wNormal], new Map([["wn", { open: 0, tilt: 0, cover: 1 }]]), 99);
+  const pRecessed = buildOpeningParts([wRecessed], new Map([["wr", { open: 0, tilt: 0, cover: 1 }]]), 99);
+
+  // Normal shutter: slats are at out - 0.07 = -0.19 (outside the wall face z = -0.12)
+  const bPosNorm = pNormal.blinds.getAttribute("position");
+  const zNorm = Array.from({ length: bPosNorm.count }, (_, i) => bPosNorm.getZ(i));
+  assert.ok(zNorm.every((z) => z < -0.12), "normal blind hangs outside the wall face");
+
+  // Recessed shutter: slats are in the reveal between outer wall face (-0.12) and window frame (-0.04)
+  const bPosRec = pRecessed.blinds.getAttribute("position");
+  const zRec = Array.from({ length: bPosRec.count }, (_, i) => bPosRec.getZ(i));
+  assert.ok(zRec.length > 0);
+  assert.ok(zRec.every((z) => z > -0.12 && z < 0), "recessed blind hangs inside the wall reveal");
+
+  // Recessed shutter has no box extending above the window top on the outside
+  const fPosRec = pRecessed.frames.getAttribute("position");
+  let maxProtrudingY = 0;
+  for (let i = 0; i < fPosRec.count; i++) {
+    if (fPosRec.getZ(i) < -0.12) {
+      maxProtrudingY = Math.max(maxProtrudingY, fPosRec.getY(i));
+    }
+  }
+  assert.ok(maxProtrudingY <= 2.2, "no box protruding from facade above opening top");
+});
+
+test("pocket sliding door sits and slides within the wall cavity rather than outside the wall", () => {
+  const normalDoor = info("d1", 1, 1.0, 0, 2.1, { type: "door", style: "sliding" });
+  const pocketDoor = info("d2", 1, 1.0, 0, 2.1, { type: "door", style: "pocket" });
+
+  const pNormOpen = buildOpeningParts([normalDoor], new Map([["d1", { open: 1, tilt: 0, cover: null }]]), 99);
+  const pPockOpen = buildOpeningParts([pocketDoor], new Map([["d2", { open: 1, tilt: 0, cover: null }]]), 99);
+
+  // When open, the normal sliding door leaf runs outside the wall (z > 0.12)
+  const d1TriOpen = pNormOpen.frameTris.find((t) => t.id === "d1")!;
+  const fPosNormOpen = pNormOpen.frames.getAttribute("position");
+  const openNormLeafZs: number[] = [];
+  for (let tri = d1TriOpen.start; tri < d1TriOpen.end; tri++) {
+    for (let v = 0; v < 3; v++) {
+      const idx = tri * 3 + v;
+      const y = fPosNormOpen.getY(idx);
+      if (y > 0.05 && y < 2.05 && fPosNormOpen.getX(idx) < 1.0) openNormLeafZs.push(fPosNormOpen.getZ(idx));
+    }
+  }
+  assert.ok(openNormLeafZs.some((z) => z > 0.12), "normal open sliding leaf is outside the wall face");
+
+  // When open, the pocket sliding door leaf stays centered inside the wall cavity (|z| < 0.035)
+  const d2TriOpen = pPockOpen.frameTris.find((t) => t.id === "d2")!;
+  const fPosPockOpen = pPockOpen.frames.getAttribute("position");
+  const openPockLeafZs: number[] = [];
+  for (let tri = d2TriOpen.start; tri < d2TriOpen.end; tri++) {
+    for (let v = 0; v < 3; v++) {
+      const idx = tri * 3 + v;
+      const y = fPosPockOpen.getY(idx);
+      if (y > 0.05 && y < 2.05 && fPosPockOpen.getX(idx) < 1.0) openPockLeafZs.push(fPosPockOpen.getZ(idx));
+    }
+  }
+  assert.ok(openPockLeafZs.length > 0);
+  assert.ok(openPockLeafZs.every((z) => Math.abs(z) < 0.035), "open pocket door leaf remains inside wall thickness");
+});

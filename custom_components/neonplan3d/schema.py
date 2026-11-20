@@ -128,8 +128,8 @@ ROOM_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-# door looks (room door, front doors with glass and sidelights, glass and sliding door) and window looks
-_OPENING_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "passage"]
+# door looks (room door, front doors with glass and sidelights, glass and sliding door, pocket door) and window looks
+_OPENING_STYLES = ["interior", "front", "front_glass", "sidelight", "sidelights", "glass", "sliding", "pocket", "passage"]
 _OPENING_STYLES += ["standard", "bars", "glass_wall", "slide"]
 
 OPENING_SCHEMA = vol.Schema(
@@ -177,8 +177,8 @@ OPENING_SCHEMA = vol.Schema(
         vol.Optional("position_inverted", default=False): bool,
         # a venetian blind whose cover reports its slats the other way round (0 = open): turned in 3D and the sliders
         vol.Optional("slat_invert"): vol.Any(None, bool),
-        # where the blind sits: outside as a roller shutter (None) or inside the room as a roller shade
-        vol.Optional("blind_side"): vol.Any(None, vol.In(["inside", "outside"])),
+        # where the blind sits: outside as a roller shutter (None), inside the room as a roller shade, or recessed into the wall
+        vol.Optional("blind_side"): vol.Any(None, vol.In(["inside", "outside", "recessed"])),
         # windows: a sensor with the sash's tilt angle (degrees), the angle that counts as fully tilted,
         # an offset the sensor reports when closed, and the other sign
         vol.Optional("tilt_angle", default=None): _ENTITY_REF,
